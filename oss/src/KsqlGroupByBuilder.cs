@@ -58,7 +58,26 @@ public class KsqlGroupByBuilder : ExpressionVisitor
 }
 public static class KsqlExtensions
 {
-    public static T LatestByOffset<T, TKey>(this IGrouping<TKey, T> grouping, Expression<Func<T, object>> selector)
+    // 修正版: プロパティの型を返すように変更
+    public static TProperty LatestByOffset<T, TKey, TProperty>(
+        this IGrouping<TKey, T> grouping,
+        Expression<Func<T, TProperty>> selector)
+    {
+        throw new NotSupportedException("This method is intended only for LINQ expression analysis.");
+    }
+
+    // 既存の互換性維持用（必要に応じて）
+    public static T LatestByOffset<T, TKey>(
+        this IGrouping<TKey, T> grouping,
+        Expression<Func<T, object>> selector)
+    {
+        throw new NotSupportedException("This method is intended only for LINQ expression analysis.");
+    }
+
+    // 他の拡張メソッドも同様に修正
+    public static TProperty EarliestByOffset<T, TKey, TProperty>(
+        this IGrouping<TKey, T> grouping,
+        Expression<Func<T, TProperty>> selector)
     {
         throw new NotSupportedException("This method is intended only for LINQ expression analysis.");
     }

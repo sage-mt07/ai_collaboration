@@ -1,0 +1,82 @@
+# .NET build artifacts
+bin/
+obj/
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build results
+*.dll
+*.exe
+*.app
+*.log
+*.pdb
+*.cache
+*.csproj.user
+*.mdb
+*.db
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Rider
+.idea/
+
+# VS Code
+.vscode/
+.vscode/*
+
+# ASP.NET Scaffolding
+ScaffoldingReadMe.txt
+
+# Test Results
+TestResults/
+*.TestResults/
+
+# dotCover
+*.dotCover
+
+# Backup & temp files
+*~ 
+*.tmp
+*.bak
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+project.lock.json
+project.fragment.lock.json
+
+# Other tools
+*.vspscc
+*.vssscc
+.vs/
+_ReSharper*/
+
+# Local history (Rider or other IDEs)
+.history/
+
+# Logs
+*.log
+logs/
+log/
+*.log.*
+
+# Optional: exclude AI output folders (Claude, Copilotなど)
+claude_outputs/
+claude_inputs/
+
+# Optional: Visual Studio Code output folders
+dist/
+out/
+
+# Optional: Local test evidence or dump files
+*.coverage
+*.dump
+*.dmp
