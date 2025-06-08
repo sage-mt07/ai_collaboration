@@ -20,10 +20,13 @@ This library allows developers to:
 
 ```
 /src
-  └── Ksql.EntityFrameworkCore        → Core DSL logic and expression builders
+  └── Ksql.EntityFrameworkCore        →  実装コード（今後、namespaceとディレクトリ構成を一致させる方針にすると保守性が向上）
 /tests
   └── Ksql.Tests                      → Unit tests for LINQ → KSQL conversion
 /claude_inputs                        → Design specs and prompts for Claude
+  ├── specs/                          → Claudeの振る舞い/全体設計
+  ├── tasks/                          → タスクごとの指示
+  └── insights/                       → Naruse・Amagi・鏡花の考察
 /claude_outputs                       → Claude-generated code (for manual review)
 ```
 

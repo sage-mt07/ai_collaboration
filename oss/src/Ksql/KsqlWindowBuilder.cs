@@ -4,7 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
 
-namespace KsqlDsl;
+namespace KsqlDsl.Ksql;
 
 public class KsqlWindowBuilder : ExpressionVisitor
 {

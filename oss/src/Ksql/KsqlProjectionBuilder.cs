@@ -1,7 +1,8 @@
 using System.Linq.Expressions;
 using System.Text;
 
-namespace KsqlDsl;
+namespace KsqlDsl.Ksql;
+
 
 
 public class KsqlProjectionBuilder : ExpressionVisitor

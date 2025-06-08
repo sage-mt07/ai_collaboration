@@ -1,7 +1,10 @@
 using System;
 using System.Linq;
 using System.Linq.Expressions;
+using Ksql.EntityFrameworkCore.Modeling;
 using KsqlDsl;
+using KsqlDsl.Ksql;
+using KsqlDsl.Metadata;
 using Xunit;
 
 namespace KsqlDsl.Tests

@@ -1,6 +1,7 @@
 using System;
 using System.Linq.Expressions;
 using KsqlDsl;
+using KsqlDsl.Ksql;
 using Xunit;
 
 public class WindowClauseTests
