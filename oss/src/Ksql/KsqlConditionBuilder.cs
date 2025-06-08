@@ -36,11 +36,35 @@ internal class KsqlConditionBuilder : ExpressionVisitor
     protected override Expression VisitBinary(BinaryExpression node)
     {
         // Handle composite key joins: new { a.Id, a.Type } equals new { b.Id, b.Type }
-        if (node.NodeType == ExpressionType.Equal && 
-            node.Left is NewExpression leftNew && 
+        if (node.NodeType == ExpressionType.Equal &&
+            node.Left is NewExpression leftNew &&
             node.Right is NewExpression rightNew)
         {
             BuildCompositeKeyCondition(leftNew, rightNew);
+            return node;
+        }
+
+        // Special case: bool member == true (avoid double bool processing)
+        if (node.NodeType == ExpressionType.Equal &&
+            node.Left is MemberExpression leftMember &&
+            (leftMember.Type == typeof(bool) || leftMember.Type == typeof(bool?)) &&
+            node.Right is ConstantExpression rightConstant &&
+            rightConstant.Value is bool boolValue)
+        {
+            string memberName;
+            if (_includeParameterPrefix && leftMember.Expression is ParameterExpression param)
+            {
+                memberName = $"{param.Name}.{leftMember.Member.Name}";
+            }
+            else
+            {
+                memberName = leftMember.Member.Name;
+            }
+
+            _sb.Append("(");
+            _sb.Append(memberName);
+            _sb.Append(boolValue ? " = true" : " = false");
+            _sb.Append(")");
             return node;
         }
 
@@ -100,6 +124,7 @@ internal class KsqlConditionBuilder : ExpressionVisitor
 
     /// <summary>
     /// Extracts member name from an expression, handling parameter prefixes
+    /// NOTE: Bool formatting is handled in VisitMember to avoid double formatting
     /// </summary>
     /// <param name="expression">The expression to extract from</param>
     /// <returns>The member name with parameter prefix (e.g., "a.Id") when _includeParameterPrefix is true</returns>
@@ -107,7 +132,7 @@ internal class KsqlConditionBuilder : ExpressionVisitor
     {
         return expression switch
         {
-            MemberExpression member when _includeParameterPrefix && member.Expression is ParameterExpression param => 
+            MemberExpression member when _includeParameterPrefix && member.Expression is ParameterExpression param =>
                 $"{param.Name}.{member.Member.Name}",
             MemberExpression member => member.Member.Name,
             UnaryExpression unary => ExtractMemberName(unary.Operand),
@@ -120,18 +145,39 @@ internal class KsqlConditionBuilder : ExpressionVisitor
         switch (node.NodeType)
         {
             case ExpressionType.Not:
-                // Handle boolean negation: !o.IsActive → "(IsActive = false)"
-                if (node.Operand is MemberExpression member && 
-                    (member.Type == typeof(bool) || member.Type == typeof(bool?)))
+                // Handle nullable bool negation: !o.IsProcessed.Value → "(IsProcessed = false)"
+                if (node.Operand is MemberExpression member &&
+                    member.Member.Name == "Value" &&
+                    member.Expression is MemberExpression innerMember &&
+                    innerMember.Type == typeof(bool?))
                 {
                     string memberName;
-                    if (_includeParameterPrefix && member.Expression is ParameterExpression param)
+                    if (_includeParameterPrefix && innerMember.Expression is ParameterExpression param)
                     {
-                        memberName = $"{param.Name}.{member.Member.Name}";
+                        memberName = $"{param.Name}.{innerMember.Member.Name}";
                     }
                     else
                     {
-                        memberName = member.Member.Name;
+                        memberName = innerMember.Member.Name;
+                    }
+                    _sb.Append("(");
+                    _sb.Append(memberName);
+                    _sb.Append(" = false");
+                    _sb.Append(")");
+                    return node;
+                }
+                // Handle regular boolean negation: !o.IsActive → "(IsActive = false)"
+                else if (node.Operand is MemberExpression regularMember &&
+                    (regularMember.Type == typeof(bool) || regularMember.Type == typeof(bool?)))
+                {
+                    string memberName;
+                    if (_includeParameterPrefix && regularMember.Expression is ParameterExpression param)
+                    {
+                        memberName = $"{param.Name}.{regularMember.Member.Name}";
+                    }
+                    else
+                    {
+                        memberName = regularMember.Member.Name;
                     }
                     _sb.Append("(");
                     _sb.Append(memberName);
@@ -140,7 +186,7 @@ internal class KsqlConditionBuilder : ExpressionVisitor
                     return node;
                 }
                 break;
-            
+
             case ExpressionType.Convert:
             case ExpressionType.ConvertChecked:
                 // Handle type conversions by visiting the operand
@@ -153,30 +199,53 @@ internal class KsqlConditionBuilder : ExpressionVisitor
 
     protected override Expression VisitMember(MemberExpression node)
     {
-        // Build the member name with or without parameter prefix
-        string memberName;
-        if (_includeParameterPrefix && node.Expression is ParameterExpression param)
+        // Handle nullable bool .Value access: o.IsProcessed.Value → "(IsProcessed = true)"
+        if (node.Member.Name == "Value" &&
+            node.Expression is MemberExpression innerMember &&
+            innerMember.Type == typeof(bool?))
         {
-            memberName = $"{param.Name}.{node.Member.Name}";
+            // Build the member name for nullable bool .Value access
+            string memberName;
+            if (_includeParameterPrefix && innerMember.Expression is ParameterExpression param)
+            {
+                memberName = $"{param.Name}.{innerMember.Member.Name}";
+            }
+            else
+            {
+                memberName = innerMember.Member.Name;
+            }
+
+            _sb.Append("(");
+            _sb.Append(memberName);
+            _sb.Append(" = true");
+            _sb.Append(")");
+            return node;
+        }
+
+        // Build the member name with or without parameter prefix
+        string finalMemberName;
+        if (_includeParameterPrefix && node.Expression is ParameterExpression parameter)
+        {
+            finalMemberName = $"{parameter.Name}.{node.Member.Name}";
         }
         else
         {
-            memberName = node.Member.Name;
+            finalMemberName = node.Member.Name;
         }
 
         // Handle bool and nullable bool properties explicitly with parentheses
         if (node.Type == typeof(bool) || node.Type == typeof(bool?))
         {
             _sb.Append("(");
-            _sb.Append(memberName);
+            _sb.Append(finalMemberName);
             _sb.Append(" = true");
             _sb.Append(")");
         }
         else
         {
-            _sb.Append(memberName);
+            _sb.Append(finalMemberName);
         }
-        
+
         return node;
     }
 

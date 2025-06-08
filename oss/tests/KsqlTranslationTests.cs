@@ -157,4 +157,57 @@ public class KsqlTranslationTests
         var result = new KsqlJoinBuilder().Build(expr.Body);
         Assert.Equal("SELECT o.OrderId FROM Order o JOIN Customer c ON o.CustomerId = c.CustomerId AND o.Region = c.Region", result);
     }
+    // KsqlTranslationTests.cs に追加するテストメソッド
+
+    [Fact]
+    public void SelectProjection_WithUnaryExpression_Should_GenerateExpectedKsql()
+    {
+        // Arrange - UnaryExpression (Convert) が挿入される LINQ 式
+        Expression<Func<Order, object>> expr = o => new { o.OrderId, o.CustomerId };
+
+        // Act
+        var result = new KsqlProjectionBuilder().Build(expr.Body);
+
+        // Assert
+        Assert.Equal("SELECT OrderId, CustomerId", result);
+    }
+
+    [Fact]
+    public void SelectProjection_WithUnaryExpressionSingleProperty_Should_GenerateExpectedKsql()
+    {
+        // Arrange - 単一プロパティでもUnaryExpressionが発生する場合
+        Expression<Func<Order, object>> expr = o => new { o.OrderId };
+
+        // Act
+        var result = new KsqlProjectionBuilder().Build(expr.Body);
+
+        // Assert
+        Assert.Equal("SELECT OrderId", result);
+    }
+
+    [Fact]
+    public void SelectProjection_WithUnaryExpressionAndAlias_Should_GenerateExpectedKsql()
+    {
+        // Arrange - エイリアス付きでUnaryExpressionが発生する場合
+        Expression<Func<Order, object>> expr = o => new { Id = o.OrderId, Customer = o.CustomerId };
+
+        // Act
+        var result = new KsqlProjectionBuilder().Build(expr.Body);
+
+        // Assert
+        Assert.Equal("SELECT OrderId AS Id, CustomerId AS Customer", result);
+    }
+
+    [Fact]
+    public void SelectProjection_WithUnaryExpressionMultipleProperties_Should_GenerateExpectedKsql()
+    {
+        // Arrange - 複数プロパティでUnaryExpressionが発生する場合
+        Expression<Func<Order, object>> expr = o => new { o.OrderId, o.CustomerId, o.Amount, o.Region };
+
+        // Act
+        var result = new KsqlProjectionBuilder().Build(expr.Body);
+
+        // Assert
+        Assert.Equal("SELECT OrderId, CustomerId, Amount, Region", result);
+    }
 }

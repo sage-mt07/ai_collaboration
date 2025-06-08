@@ -3,8 +3,6 @@ using System.Text;
 
 namespace KsqlDsl.Ksql;
 
-
-
 internal class KsqlProjectionBuilder : ExpressionVisitor
 {
     private readonly StringBuilder _sb = new();
@@ -33,5 +31,18 @@ internal class KsqlProjectionBuilder : ExpressionVisitor
     {
         _sb.Append("*");
         return node;
+    }
+
+    /// <summary>
+    /// Handles UnaryExpression nodes, particularly Convert operations that occur
+    /// when anonymous types are cast to object in LINQ expressions.
+    /// </summary>
+    /// <param name="node">The UnaryExpression to process</param>
+    /// <returns>The result of visiting the operand</returns>
+    protected override Expression VisitUnary(UnaryExpression node)
+    {
+        // object‚Ö‚Ì•ÏŠ·‚Í‚»‚Ì‚Ü‚Ü’†g‚ğˆ—
+        // Skip Convert operations and process the inner operand directly
+        return Visit(node.Operand);
     }
 }
