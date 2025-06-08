@@ -117,6 +117,13 @@ The naming convention in this project strictly follows Kafka/KSQL terminology. I
 
 
 ## Completed Tasks & Claude Logs
+### ✅ LINQ to KSQL DSL Interpretation
+
+- Expression tree-based translation completed
+- Full clause support: SELECT, WHERE, GROUP BY, HAVING, WINDOW, JOIN
+- Integrated and tested under KsqlTranslationTests.cs
+- DSL expression patterns confirmed and documented
+
 ### Window Clause Full Support (by Naruse)
 ⏱ Estimated Active Work Time: ~1 hour 30 minutes
 (excluding break, reflection, and unrelated chat)
