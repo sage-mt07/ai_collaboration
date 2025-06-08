@@ -3,7 +3,7 @@ namespace KsqlDsl.Metadata;
 using System;
 using System.Linq.Expressions;
 
-public static class LinqExpressionParser
+internal static class LinqExpressionParser
 {
     public static Expression<Func<T, TResult>> ParseLambda<T, TResult>(string expr)
     {

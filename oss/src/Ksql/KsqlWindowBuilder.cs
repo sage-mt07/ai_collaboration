@@ -6,7 +6,7 @@ using System.Text;
 
 namespace KsqlDsl.Ksql;
 
-public class KsqlWindowBuilder : ExpressionVisitor
+internal class KsqlWindowBuilder : ExpressionVisitor
 {
     private readonly StringBuilder _sb = new();
     private string _windowType = "";

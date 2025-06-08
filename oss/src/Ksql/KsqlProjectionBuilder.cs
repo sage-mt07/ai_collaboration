@@ -5,7 +5,7 @@ namespace KsqlDsl.Ksql;
 
 
 
-public class KsqlProjectionBuilder : ExpressionVisitor
+internal class KsqlProjectionBuilder : ExpressionVisitor
 {
     private readonly StringBuilder _sb = new();
 

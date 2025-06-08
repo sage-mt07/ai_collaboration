@@ -9,7 +9,7 @@ namespace KsqlDsl.Ksql;
 /// <summary>
 /// Configuration options for KSQL CREATE statements WITH clause
 /// </summary>
-public class KsqlWithOptions
+internal class KsqlWithOptions
 {
     public string? TopicName { get; set; }
     public string? KeyFormat { get; set; }

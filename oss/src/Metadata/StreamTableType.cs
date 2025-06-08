@@ -9,7 +9,7 @@ namespace KsqlDsl.Metadata;
 /// <summary>
 /// Represents the type of KSQL entity (STREAM or TABLE)
 /// </summary>
-public enum StreamTableType
+internal enum StreamTableType
 {
     Stream,
     Table

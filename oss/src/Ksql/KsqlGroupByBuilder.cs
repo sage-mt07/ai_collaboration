@@ -6,7 +6,7 @@ using System.Text;
 
 namespace KsqlDsl.Ksql;
 
-public static class KsqlGroupByBuilder
+internal static class KsqlGroupByBuilder
 {
     public static string Build(Expression expression)
     {

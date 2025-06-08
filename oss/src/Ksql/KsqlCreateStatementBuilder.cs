@@ -14,7 +14,7 @@ namespace KsqlDsl.Ksql;
 /// <summary>
 /// Builder for generating KSQL CREATE STREAM/TABLE DDL statements from C# POCO types
 /// </summary>
-public static class KsqlCreateStatementBuilder
+internal static class KsqlCreateStatementBuilder
 {
     /// <summary>
     /// Builds a KSQL CREATE STREAM or CREATE TABLE statement from a C# type

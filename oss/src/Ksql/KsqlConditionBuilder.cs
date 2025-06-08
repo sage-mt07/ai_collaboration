@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace KsqlDsl.Ksql;
 
-public class KsqlConditionBuilder : ExpressionVisitor
+internal class KsqlConditionBuilder : ExpressionVisitor
 {
     private readonly StringBuilder _sb = new();
 

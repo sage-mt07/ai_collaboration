@@ -7,7 +7,7 @@ using System.Text;
 
 namespace KsqlDsl.Ksql;
 
-public class KsqlJoinBuilder
+internal class KsqlJoinBuilder
 {
     public string Build(Expression expression)
     {

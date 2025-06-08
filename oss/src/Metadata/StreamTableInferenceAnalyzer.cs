@@ -10,7 +10,7 @@ namespace KsqlDsl.Metadata;
 /// <summary>
 /// Analyzer for inferring STREAM vs TABLE based on LINQ expression patterns
 /// </summary>
-public class StreamTableInferenceAnalyzer : ExpressionVisitor
+internal class StreamTableInferenceAnalyzer : ExpressionVisitor
 {
     private bool _hasGroupBy = false;
     private bool _hasAggregate = false;

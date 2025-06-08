@@ -10,7 +10,7 @@ namespace KsqlDsl.Metadata;
 /// <summary>
 /// Result of LINQ expression analysis for Stream/Table inference
 /// </summary>
-public class InferenceResult
+internal class InferenceResult
 {
     public StreamTableType InferredType { get; set; }
     public bool IsExplicitlyDefined { get; set; }

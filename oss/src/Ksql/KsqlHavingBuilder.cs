@@ -4,7 +4,7 @@ using System.Text;
 
 namespace KsqlDsl.Ksql;
 
-public class KsqlHavingBuilder : ExpressionVisitor
+internal class KsqlHavingBuilder : ExpressionVisitor
 {
     private readonly StringBuilder _sb = new();
 

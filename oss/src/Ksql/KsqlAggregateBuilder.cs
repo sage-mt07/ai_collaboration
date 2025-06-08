@@ -6,7 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 
 namespace KsqlDsl.Ksql;
-public static class KsqlAggregateBuilder
+internal static class KsqlAggregateBuilder
 {
     public static string Build(Expression expression)
     {
