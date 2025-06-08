@@ -1,3 +1,4 @@
+
 # Claude Integration Specification for Ksql.EntityFrameworkCore
 
 This document provides task-specific guidance for Claude when working with the Ksql.EntityFrameworkCore project.
@@ -85,3 +86,24 @@ Claude will not:
 5. Refined feedback is looped back to Claude if needed
 
 ---
+
+## 🏷️ Naming Policy
+
+The naming convention in this project strictly follows Kafka/KSQL terminology. It assumes DSL users are familiar with Kafka concepts, and prioritizes consistency with the official Kafka documentation.
+
+### Windowing
+
+| Kafka Term      | Method Name Used in DSL           |
+|----------------|--------------------------------|
+| Tumbling Window | TumblingWindow()              |
+| Hopping Window  | HoppingWindow()               |
+| Session Window  | SessionWindow()               |
+
+- .Size(TimeSpan) → maps to SIZE clause
+- .AdvanceBy(TimeSpan) → maps to ADVANCE BY clause (Hopping only)
+- .Gap(TimeSpan) → used in SESSION (GAP ...)
+
+### General Principles
+
+- Terms and structures defined by Kafka should be used verbatim without translation or abstraction
+- Internal helper classes and interfaces should also align with Kafka vocabulary as much as possible
