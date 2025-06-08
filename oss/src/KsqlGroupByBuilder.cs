@@ -1,28 +1,41 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
 
 namespace KsqlDsl;
 
-
-public class KsqlGroupByBuilder : ExpressionVisitor
+public static class KsqlGroupByBuilder
 {
-    private readonly StringBuilder _sb = new();
-
-    public static string Build(Expression body)
+    public static string Build(Expression expression)
     {
-        if (body is NewExpression newExpr)
-        {
-            var keys = newExpr.Arguments
-                .OfType<MemberExpression>()
-                .Select(m => m.Member.Name)
-                .ToList();
+        var visitor = new GroupByVisitor();
+        visitor.Visit(expression);
+        return "GROUP BY " + visitor.ToString();
+    }
 
-            // fallback: Try deeper extract if not direct MemberExpression
+    private class GroupByVisitor : ExpressionVisitor
+    {
+        private readonly StringBuilder _sb = new();
+
+        protected override Expression VisitNew(NewExpression node)
+        {
+            var keys = new List<string>();
+            
+            // Extract keys from Arguments with UnaryExpression support
+            foreach (var arg in node.Arguments)
+            {
+                if (arg is MemberExpression member)
+                    keys.Add(member.Member.Name);
+                else if (arg is UnaryExpression unary && unary.Operand is MemberExpression member2)
+                    keys.Add(member2.Member.Name);
+            }
+
+            // Fallback: if no keys found, try alternative extraction
             if (!keys.Any())
             {
-                foreach (var expr in newExpr.Arguments)
+                foreach (var expr in node.Arguments)
                 {
                     if (expr is MemberExpression member)
                         keys.Add(member.Member.Name);
@@ -31,54 +44,50 @@ public class KsqlGroupByBuilder : ExpressionVisitor
                 }
             }
 
-            return $"GROUP BY {string.Join(", ", keys)}";
+            // Build the result string
+            for (int i = 0; i < keys.Count; i++)
+            {
+                _sb.Append(keys[i]);
+                if (i < keys.Count - 1)
+                    _sb.Append(", ");
+            }
+
+            return node;
         }
-        else if (body is MemberExpression member)
+
+        protected override Expression VisitMember(MemberExpression node)
         {
-            return $"GROUP BY {member.Member.Name}";
+            _sb.Append(node.Member.Name);
+            return node;
         }
-        return "GROUP BY UNKNOWN";
-    }
 
-
-    protected override Expression VisitMember(MemberExpression node)
-    {
-        _sb.Append(node.Member.Name + ", ");
-        return node;
-    }
-
-    protected override Expression VisitNew(NewExpression node)
-    {
-        foreach (var arg in node.Arguments)
+        public override string ToString()
         {
-            Visit(arg);
+            return _sb.ToString();
         }
-        return node;
     }
 }
 public static class KsqlExtensions
 {
-    // 修正版: プロパティの型を返すように変更
-    public static TProperty LatestByOffset<T, TKey, TProperty>(
-        this IGrouping<TKey, T> grouping,
-        Expression<Func<T, TProperty>> selector)
+    public static TResult LatestByOffset<TSource, TResult>(this IGrouping<string, TSource> grouping, Func<TSource, TResult> selector)
     {
-        throw new NotSupportedException("This method is intended only for LINQ expression analysis.");
+        // This is a placeholder implementation for compilation
+        // The actual KSQL translation happens in the expression tree
+        throw new NotImplementedException("This method should only be used in expression trees for KSQL translation");
     }
 
-    // 既存の互換性維持用（必要に応じて）
-    public static T LatestByOffset<T, TKey>(
-        this IGrouping<TKey, T> grouping,
-        Expression<Func<T, object>> selector)
+    public static TResult EarliestByOffset<TSource, TResult>(this IGrouping<string, TSource> grouping, Func<TSource, TResult> selector)
     {
-        throw new NotSupportedException("This method is intended only for LINQ expression analysis.");
+        throw new NotImplementedException("This method should only be used in expression trees for KSQL translation");
     }
 
-    // 他の拡張メソッドも同様に修正
-    public static TProperty EarliestByOffset<T, TKey, TProperty>(
-        this IGrouping<TKey, T> grouping,
-        Expression<Func<T, TProperty>> selector)
+    public static List<TResult> CollectList<TSource, TResult>(this IGrouping<string, TSource> grouping, Func<TSource, TResult> selector)
     {
-        throw new NotSupportedException("This method is intended only for LINQ expression analysis.");
+        throw new NotImplementedException("This method should only be used in expression trees for KSQL translation");
+    }
+
+    public static HashSet<TResult> CollectSet<TSource, TResult>(this IGrouping<string, TSource> grouping, Func<TSource, TResult> selector)
+    {
+        throw new NotImplementedException("This method should only be used in expression trees for KSQL translation");
     }
 }

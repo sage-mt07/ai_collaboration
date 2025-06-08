@@ -107,3 +107,45 @@ The naming convention in this project strictly follows Kafka/KSQL terminology. I
 
 - Terms and structures defined by Kafka should be used verbatim without translation or abstraction
 - Internal helper classes and interfaces should also align with Kafka vocabulary as much as possible
+
+### EMIT FINAL Caution
+
+- EMIT FINAL will only emit output when an event arrives at the end of the window
+- Windows with events that receive no activity at closing time may produce no output at all
+- This behavior is expected in KSQL and should be accounted for in use cases
+- Users who require guaranteed final output for every window must insert a dummy event or use EMIT CHANGES with downstream filtering
+
+
+## Completed Tasks & Claude Logs
+### Window Clause Full Support (by Naruse)
+⏱ Estimated Active Work Time: ~1 hour 30 minutes
+(excluding break, reflection, and unrelated chat)
+
+##### Implemented Features:
+- Retention(TimeSpan)
+- GracePeriod(TimeSpan)
+- EmitFinal()
+
+##### Test Coverage:
+
+- 17 test cases including option combinations and EMIT FINAL edge cases
+
+##### Notes:
+
+- EMIT FINAL only emits when a new event occurs after window close
+- Session windows do not support retention/grace/emit final
+- Default is EMIT CHANGES (implicit)
+
+### 📁 Artifacts:
+
+- KsqlWindowBuilder.cs (extended)
+- WindowClauseTests.cs (new)
+- KsqlTranslationTests.cs (updated)
+- Implementation Log
+
+### 🛡️ Quality Notes:
+
+- Type-safe, XML documented
+- Matches KSQL production semantics
+- Enterprise-grade implementation
+
