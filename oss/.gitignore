@@ -69,8 +69,8 @@ log/
 *.log.*
 
 # Optional: exclude AI output folders (Claude, Copilotなど)
-claude_outputs/
-claude_inputs/
+!claude_outputs/
+!claude_inputs/
 
 # Optional: Visual Studio Code output folders
 dist/
