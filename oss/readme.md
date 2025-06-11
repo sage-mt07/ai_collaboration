@@ -5,6 +5,13 @@ Inspired by Entity Framework, tailored for Apache Kafka + ksqlDB integration.
 
 ---
 
+## 📚 Official Guidelines
+
+- For official project rules, naming conventions, DLQ design, and other technical guidelines, **please refer to [`docs/guidelines.md`](./docs/guidelines.md)**.
+  - (命名規約・DLQ設計・スキーマ運用等の詳細はdocs/guidelines.mdに集約しています)
+
+---
+
 ## 🌟 Project Purpose
 
 This library allows developers to:
