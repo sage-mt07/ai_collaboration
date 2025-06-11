@@ -7,9 +7,9 @@ using System.Text;
 using System.Threading.Tasks;
 using Ksql.EntityFrameworkCore.Modeling;
 using KsqlDsl.Metadata;
+using KsqlDsl.Modeling;
 
 namespace KsqlDsl.Ksql;
-
 
 /// <summary>
 /// Builder for generating KSQL CREATE STREAM/TABLE DDL statements from C# POCO types
@@ -78,7 +78,7 @@ internal static class KsqlCreateStatementBuilder
     }
 
     /// <summary>
-    /// Builds column definitions from a C# type's properties
+    /// Builds column definitions from a C# type's properties, excluding properties marked with [KafkaIgnore]
     /// </summary>
     /// <param name="entityType">The C# type to analyze</param>
     /// <returns>Comma-separated column definitions</returns>
@@ -89,12 +89,58 @@ internal static class KsqlCreateStatementBuilder
 
         foreach (var property in properties)
         {
+            // Skip properties marked with [KafkaIgnore]
+            if (ShouldIgnoreProperty(property))
+            {
+                continue;
+            }
+
             var columnName = property.Name;
             var ksqlType = GetKsqlType(property);
             columnDefinitions.Add($"{columnName} {ksqlType}");
         }
 
         return string.Join(", ", columnDefinitions);
+    }
+
+    /// <summary>
+    /// Determines whether a property should be ignored based on the presence of [KafkaIgnore] attribute
+    /// </summary>
+    /// <param name="property">The property to check</param>
+    /// <returns>True if the property should be ignored, false otherwise</returns>
+    private static bool ShouldIgnoreProperty(PropertyInfo property)
+    {
+        return property.GetCustomAttribute<KafkaIgnoreAttribute>() != null;
+    }
+
+    /// <summary>
+    /// Gets all properties that should be included in the schema (not marked with [KafkaIgnore])
+    /// </summary>
+    /// <param name="entityType">The C# type to analyze</param>
+    /// <returns>Array of properties to include in schema</returns>
+    public static PropertyInfo[] GetSchemaProperties(Type entityType)
+    {
+        if (entityType == null)
+            throw new ArgumentNullException(nameof(entityType));
+
+        return entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(property => !ShouldIgnoreProperty(property))
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Gets all properties that are marked with [KafkaIgnore]
+    /// </summary>
+    /// <param name="entityType">The C# type to analyze</param>
+    /// <returns>Array of ignored properties</returns>
+    public static PropertyInfo[] GetIgnoredProperties(Type entityType)
+    {
+        if (entityType == null)
+            throw new ArgumentNullException(nameof(entityType));
+
+        return entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(ShouldIgnoreProperty)
+            .ToArray();
     }
 
     /// <summary>

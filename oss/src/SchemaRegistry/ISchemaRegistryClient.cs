@@ -79,13 +79,7 @@ public interface ISchemaRegistryClient : IDisposable
     /// <returns>The schema information</returns>
     Task<SchemaInfo> GetSchemaAsync(string subject, int version);
 
-    /// <summary>
-    /// Deletes a specific version of a schema
-    /// </summary>
-    /// <param name="subject">The subject name</param>
-    /// <param name="version">The version to delete</param>
-    /// <returns>The deleted version number</returns>
-    Task<int> DeleteSchemaAsync(string subject, int version);
+
 
     /// <summary>
     /// Gets all subjects registered in the schema registry

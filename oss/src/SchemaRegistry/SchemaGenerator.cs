@@ -113,6 +113,96 @@ public static class SchemaGenerator
     }
 
     /// <summary>
+    /// Generates a key schema for the specified type
+    /// </summary>
+    /// <typeparam name="T">The key type</typeparam>
+    /// <returns>Avro key schema as JSON string</returns>
+    public static string GenerateKeySchema<T>()
+    {
+        return GenerateKeySchema(typeof(T));
+    }
+
+    /// <summary>
+    /// Generates a key schema for the specified type
+    /// </summary>
+    /// <param name="keyType">The key type</param>
+    /// <returns>Avro key schema as JSON string</returns>
+    public static string GenerateKeySchema(Type keyType)
+    {
+        if (keyType == null)
+            throw new ArgumentNullException(nameof(keyType));
+
+        // Handle primitive types directly
+        if (IsPrimitiveType(keyType))
+        {
+            return GeneratePrimitiveKeySchema(keyType);
+        }
+
+        // Handle nullable primitive types
+        var underlyingType = Nullable.GetUnderlyingType(keyType);
+        if (underlyingType != null && IsPrimitiveType(underlyingType))
+        {
+            return GenerateNullablePrimitiveKeySchema(underlyingType);
+        }
+
+        // Handle complex types as records
+        var schema = new AvroSchema
+        {
+            Type = "record",
+            Name = $"{keyType.Name}Key",
+            Namespace = keyType.Namespace ?? "KsqlDsl.Generated",
+            Fields = GenerateFields(keyType)
+        };
+
+        var options = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
+
+        return JsonSerializer.Serialize(schema, options);
+    }
+
+    /// <summary>
+    /// Generates both key and value schemas for a topic
+    /// </summary>
+    /// <typeparam name="TKey">The key type</typeparam>
+    /// <typeparam name="TValue">The value type</typeparam>
+    /// <returns>Tuple of (keySchema, valueSchema)</returns>
+    public static (string keySchema, string valueSchema) GenerateTopicSchemas<TKey, TValue>()
+    {
+        var keySchema = GenerateKeySchema<TKey>();
+        var valueSchema = GenerateSchema<TValue>();
+        return (keySchema, valueSchema);
+    }
+
+    /// <summary>
+    /// Generates both key and value schemas for a topic with custom naming
+    /// </summary>
+    /// <typeparam name="TKey">The key type</typeparam>
+    /// <typeparam name="TValue">The value type</typeparam>
+    /// <param name="topicName">The topic name for custom naming</param>
+    /// <returns>Tuple of (keySchema, valueSchema)</returns>
+    public static (string keySchema, string valueSchema) GenerateTopicSchemas<TKey, TValue>(string topicName)
+    {
+        if (string.IsNullOrEmpty(topicName))
+            throw new ArgumentException("Topic name cannot be null or empty", nameof(topicName));
+
+        var keySchema = GenerateKeySchema<TKey>();
+        
+        // For value schema, use custom naming based on topic name
+        var valueType = typeof(TValue);
+        var valueOptions = new SchemaGenerationOptions
+        {
+            CustomName = $"{ToPascalCase(topicName)}Value",
+            Namespace = valueType.Namespace ?? "KsqlDsl.Generated"
+        };
+        var valueSchema = GenerateSchema(valueType, valueOptions);
+        
+        return (keySchema, valueSchema);
+    }
+
+    /// <summary>
     /// Generates fields for the Avro schema, excluding properties marked with [KafkaIgnore]
     /// </summary>
     /// <param name="type">The type to analyze</param>
@@ -235,6 +325,53 @@ public static class SchemaGenerator
     }
 
     /// <summary>
+    /// Checks if a type is a primitive type suitable for keys
+    /// </summary>
+    /// <param name="type">The type to check</param>
+    /// <returns>True if primitive, false otherwise</returns>
+    private static bool IsPrimitiveType(Type type)
+    {
+        return type == typeof(string) ||
+               type == typeof(int) ||
+               type == typeof(long) ||
+               type == typeof(Guid) ||
+               type == typeof(byte[]);
+    }
+
+    /// <summary>
+    /// Generates a primitive key schema
+    /// </summary>
+    /// <param name="primitiveType">The primitive type</param>
+    /// <returns>Avro primitive schema</returns>
+    private static string GeneratePrimitiveKeySchema(Type primitiveType)
+    {
+        return primitiveType switch
+        {
+            Type t when t == typeof(string) => "\"string\"",
+            Type t when t == typeof(int) => "\"int\"",
+            Type t when t == typeof(long) => "\"long\"",
+            Type t when t == typeof(byte[]) => "\"bytes\"",
+            Type t when t == typeof(Guid) => JsonSerializer.Serialize(new
+            {
+                type = "string",
+                logicalType = "uuid"
+            }),
+            _ => "\"string\""
+        };
+    }
+
+    /// <summary>
+    /// Generates a nullable primitive key schema
+    /// </summary>
+    /// <param name="primitiveType">The primitive type</param>
+    /// <returns>Avro nullable primitive schema</returns>
+    private static string GenerateNullablePrimitiveKeySchema(Type primitiveType)
+    {
+        var innerType = GeneratePrimitiveKeySchema(primitiveType);
+        return JsonSerializer.Serialize(new object[] { "null", JsonSerializer.Deserialize<object>(innerType) });
+    }
+
+    /// <summary>
     /// Checks if a property is nullable
     /// </summary>
     /// <param name="property">The property to check</param>
@@ -270,6 +407,30 @@ public static class SchemaGenerator
         // TODO: Add XML documentation parsing if needed
         // For now, return null - can be extended later
         return null;
+    }
+
+    /// <summary>
+    /// Converts a string to PascalCase
+    /// </summary>
+    /// <param name="input">The input string</param>
+    /// <returns>PascalCase string</returns>
+    private static string ToPascalCase(string input)
+    {
+        if (string.IsNullOrEmpty(input))
+            return string.Empty;
+
+        var words = input.Split(new[] { '-', '_', '.' }, StringSplitOptions.RemoveEmptyEntries);
+        var result = string.Empty;
+
+        foreach (var word in words)
+        {
+            if (word.Length > 0)
+            {
+                result += char.ToUpperInvariant(word[0]) + (word.Length > 1 ? word.Substring(1).ToLowerInvariant() : string.Empty);
+            }
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -318,8 +479,3 @@ public static class SchemaGenerator
         };
     }
 }
-
-
-
-
-

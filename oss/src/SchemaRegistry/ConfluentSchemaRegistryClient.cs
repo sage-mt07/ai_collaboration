@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -12,7 +12,7 @@ namespace KsqlDsl.SchemaRegistry.Implementation
     /// </summary>
     public class ConfluentSchemaRegistryClient : ISchemaRegistryClient
     {
-        private readonly ISchemaRegistryClient _confluentClient;
+        private readonly Confluent.SchemaRegistry.ISchemaRegistryClient _confluentClient;
         private readonly SchemaRegistryConfig _config;
         private bool _disposed = false;
 
@@ -24,13 +24,29 @@ namespace KsqlDsl.SchemaRegistry.Implementation
         {
             _config = config ?? throw new ArgumentNullException(nameof(config));
 
+            // Configure Confluent Schema Registry client
             var confluentConfig = new Confluent.SchemaRegistry.SchemaRegistryConfig
             {
-                Url = _config.Url,
-                BasicAuthUserInfo = _config.BasicAuthUserInfo,
-                RequestTimeoutMs = _config.TimeoutMs,
-                MaxCachedSchemas = _config.MaxCachedSchemas
+                Url = _config.Url
             };
+
+            // Set basic auth if provided
+            if (!string.IsNullOrEmpty(_config.BasicAuthUserInfo))
+            {
+                confluentConfig.BasicAuthUserInfo = _config.BasicAuthUserInfo;
+            }
+
+            // Set timeout if specified
+            if (_config.TimeoutMs > 0)
+            {
+                confluentConfig.RequestTimeoutMs = _config.TimeoutMs;
+            }
+
+            // Set max cached schemas if specified  
+            if (_config.MaxCachedSchemas > 0)
+            {
+                confluentConfig.MaxCachedSchemas = _config.MaxCachedSchemas;
+            }
 
             // Add additional properties
             foreach (var property in _config.Properties)
@@ -38,6 +54,7 @@ namespace KsqlDsl.SchemaRegistry.Implementation
                 confluentConfig.Set(property.Key, property.Value);
             }
 
+            // Create the Confluent client
             _confluentClient = new CachedSchemaRegistryClient(confluentConfig);
         }
 
@@ -112,6 +129,7 @@ namespace KsqlDsl.SchemaRegistry.Implementation
 
             try
             {
+                // Create Schema object with Avro type
                 var schemaObj = new Schema(schema, Confluent.SchemaRegistry.SchemaType.Avro);
                 return await _confluentClient.RegisterSchemaAsync(subject, schemaObj);
             }
@@ -133,14 +151,14 @@ namespace KsqlDsl.SchemaRegistry.Implementation
 
             try
             {
-                var schema = await _confluentClient.GetLatestSchemaAsync(subject);
+                var registeredSchema = await _confluentClient.GetLatestSchemaAsync(subject);
                 return new SchemaInfo
                 {
-                    Id = schema.Id,
-                    Version = schema.Version,
+                    Id = registeredSchema.Id,
+                    Version = registeredSchema.Version,
                     Subject = subject,
-                    Schema = schema.SchemaString,
-                    SchemaType = ConvertSchemaType(schema.SchemaType)
+                    Schema = registeredSchema.SchemaString,
+                    SchemaType = ConvertSchemaType(registeredSchema.SchemaType)
                 };
             }
             catch (SchemaRegistryException ex)
@@ -236,14 +254,14 @@ namespace KsqlDsl.SchemaRegistry.Implementation
 
             try
             {
-                var schema = await _confluentClient.GetSchemaAsync(subject, version);
+                var registeredSchema = await _confluentClient.GetRegisteredSchemaAsync(subject, version);
                 return new SchemaInfo
                 {
-                    Id = schema.Id,
-                    Version = schema.Version,
+                    Id = registeredSchema.Id,
+                    Version = registeredSchema.Version,
                     Subject = subject,
-                    Schema = schema.SchemaString,
-                    SchemaType = ConvertSchemaType(schema.SchemaType)
+                    Schema = registeredSchema.SchemaString,
+                    SchemaType = ConvertSchemaType(registeredSchema.SchemaType)
                 };
             }
             catch (SchemaRegistryException ex)
@@ -252,28 +270,6 @@ namespace KsqlDsl.SchemaRegistry.Implementation
             }
         }
 
-        /// <summary>
-        /// Deletes a specific version of a schema
-        /// </summary>
-        /// <param name="subject">The subject name</param>
-        /// <param name="version">The version to delete</param>
-        /// <returns>The deleted version number</returns>
-        public async Task<int> DeleteSchemaAsync(string subject, int version)
-        {
-            if (string.IsNullOrEmpty(subject))
-                throw new ArgumentException("Subject cannot be null or empty", nameof(subject));
-            if (version <= 0)
-                throw new ArgumentException("Version must be positive", nameof(version));
-
-            try
-            {
-                return await _confluentClient.DeleteSubjectAsync(subject, version);
-            }
-            catch (SchemaRegistryException ex)
-            {
-                throw new SchemaRegistryOperationException($"Failed to delete schema for subject '{subject}' version {version}", ex);
-            }
-        }
 
         /// <summary>
         /// Gets all subjects registered in the schema registry
