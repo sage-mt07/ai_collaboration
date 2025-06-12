@@ -6,7 +6,7 @@ using KsqlDsl;
 using KsqlDsl.Ksql;
 using Xunit;
 
-public class Order
+public class OrderStringId
 {
     public string OrderId { get; set; }
     public string CustomerId { get; set; }
@@ -23,18 +23,18 @@ public class Order
     public DateTime OrderTime { get; set; }
 }
 
-public class Customer
+public class CustomerStringId
 {
     public string CustomerId { get; set; }
     public string CustomerName { get; set; }
     public string Region { get; set; }
 }
-public class KsqlTranslationTests
+public class KsqlTranslationStringIdTests
 {
     [Fact]
     public void SelectProjection_Should_GenerateExpectedKsql()
     {
-        Expression<Func<Order, object>> expr = o => new { o.OrderId, o.Amount };
+        Expression<Func<OrderStringId, object>> expr = o => new { o.OrderId, o.Amount };
         var result = new KsqlProjectionBuilder().Build(expr.Body);
         Assert.Equal("SELECT OrderId, Amount", result);
     }
@@ -42,7 +42,7 @@ public class KsqlTranslationTests
     [Fact]
     public void WhereClause_Should_GenerateExpectedKsql()
     {
-        Expression<Func<Order, bool>> expr = o => o.Amount > 1000 && o.CustomerId == "C001";
+        Expression<Func<OrderStringId, bool>> expr = o => o.Amount > 1000 && o.CustomerId == "C001";
         var result = new KsqlConditionBuilder().Build(expr.Body);
         Assert.Equal("WHERE ((Amount > 1000) AND (CustomerId = 'C001'))", result);
     }
@@ -50,7 +50,7 @@ public class KsqlTranslationTests
     [Fact]
     public void GroupByClause_Should_GenerateExpectedKsql()
     {
-        Expression<Func<Order, object>> expr = o => new { o.CustomerId, o.Region };
+        Expression<Func<OrderStringId, object>> expr = o => new { o.CustomerId, o.Region };
         var result = KsqlGroupByBuilder.Build(expr.Body);
         Assert.Equal("GROUP BY CustomerId, Region", result);
     }
@@ -58,7 +58,7 @@ public class KsqlTranslationTests
     [Fact]
     public void AggregateClause_Should_GenerateExpectedKsql()
     {
-        Expression<Func<IGrouping<string, Order>, object>> expr = g => new { Total = g.Sum(x => x.Amount) };
+        Expression<Func<IGrouping<string, OrderStringId>, object>> expr = g => new { Total = g.Sum(x => x.Amount) };
         var result = KsqlAggregateBuilder.Build(expr.Body);
         Assert.Equal("SELECT SUM(Amount) AS Total", result);
     }
@@ -66,7 +66,7 @@ public class KsqlTranslationTests
     [Fact]
     public void LatestByOffset_Should_GenerateExpectedKsql()
     {
-        Expression<Func<IGrouping<string, Order>, object>> expr = g => new { LatestAmount = g.LatestByOffset(x => x.Amount) };
+        Expression<Func<IGrouping<string, OrderStringId>, object>> expr = g => new { LatestAmount = g.LatestByOffset(x => x.Amount) };
         var result = KsqlAggregateBuilder.Build(expr.Body);
         Assert.Equal("SELECT LATEST_BY_OFFSET(Amount) AS LatestAmount", result);
     }
@@ -125,7 +125,7 @@ public class KsqlTranslationTests
     [Fact]
     public void HavingClause_Sum_Should_GenerateExpectedKsql()
     {
-        Expression<Func<IGrouping<string, Order>, bool>> expr = g => g.Sum(x => x.Amount) > 1000;
+        Expression<Func<IGrouping<string, OrderStringId>, bool>> expr = g => g.Sum(x => x.Amount) > 1000;
         var result = new KsqlHavingBuilder().Build(expr.Body);
         Assert.Equal("HAVING (SUM(Amount) > 1000)", result);
     }
@@ -133,7 +133,7 @@ public class KsqlTranslationTests
     [Fact]
     public void JoinClause_SingleKey_Should_GenerateExpectedKsql()
     {
-        Expression<Func<IQueryable<Order>, IQueryable<Customer>, IQueryable<object>>> expr =
+        Expression<Func<IQueryable<OrderStringId>, IQueryable<CustomerStringId>, IQueryable<object>>> expr =
             (orders, customers) =>
                 orders.Join(customers,
                             o => o.CustomerId,
@@ -141,13 +141,13 @@ public class KsqlTranslationTests
                             (o, c) => new { o.OrderId, c.CustomerName });
 
         var result = new KsqlJoinBuilder().Build(expr.Body);
-        Assert.Equal("SELECT o.OrderId, c.CustomerName FROM Order o JOIN Customer c ON o.CustomerId = c.CustomerId", result);
+        Assert.Equal("SELECT o.OrderId, c.CustomerName FROM OrderStringId o JOIN CustomerStringId c ON o.CustomerId = c.CustomerId", result);
     }
 
     [Fact]
     public void JoinClause_CompositeKey_Should_GenerateExpectedKsql()
     {
-        Expression<Func<IQueryable<Order>, IQueryable<Customer>, IQueryable<object>>> expr =
+        Expression<Func<IQueryable<OrderStringId>, IQueryable<CustomerStringId>, IQueryable<object>>> expr =
             (orders, customers) =>
                 orders.Join(customers,
                             o => new { o.CustomerId, o.Region },
@@ -155,15 +155,15 @@ public class KsqlTranslationTests
                             (o, c) => new { o.OrderId });
 
         var result = new KsqlJoinBuilder().Build(expr.Body);
-        Assert.Equal("SELECT o.OrderId FROM Order o JOIN Customer c ON o.CustomerId = c.CustomerId AND o.Region = c.Region", result);
+        Assert.Equal("SELECT o.OrderId FROM OrderStringId o JOIN CustomerStringId c ON o.CustomerId = c.CustomerId AND o.Region = c.Region", result);
     }
-    // KsqlTranslationTests.cs ‚É’Ç‰Á‚·‚éƒeƒXƒgƒƒ\ƒbƒh
+    // KsqlTranslationTests.cs ï¿½É’Ç‰ï¿½ï¿½ï¿½ï¿½ï¿½eï¿½Xï¿½gï¿½ï¿½ï¿½\ï¿½bï¿½h
 
     [Fact]
     public void SelectProjection_WithUnaryExpression_Should_GenerateExpectedKsql()
     {
-        // Arrange - UnaryExpression (Convert) ‚ª‘}“ü‚³‚ê‚é LINQ ®
-        Expression<Func<Order, object>> expr = o => new { o.OrderId, o.CustomerId };
+        // Arrange - UnaryExpression (Convert) ï¿½ï¿½ï¿½}ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ LINQ ï¿½ï¿½
+        Expression<Func<OrderStringId, object>> expr = o => new { o.OrderId, o.CustomerId };
 
         // Act
         var result = new KsqlProjectionBuilder().Build(expr.Body);
@@ -175,8 +175,8 @@ public class KsqlTranslationTests
     [Fact]
     public void SelectProjection_WithUnaryExpressionSingleProperty_Should_GenerateExpectedKsql()
     {
-        // Arrange - ’PˆêƒvƒƒpƒeƒB‚Å‚àUnaryExpression‚ª”­¶‚·‚éê‡
-        Expression<Func<Order, object>> expr = o => new { o.OrderId };
+        // Arrange - ï¿½Pï¿½ï¿½vï¿½ï¿½ï¿½pï¿½eï¿½Bï¿½Å‚ï¿½UnaryExpressionï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ê‡
+        Expression<Func<OrderStringId, object>> expr = o => new { o.OrderId };
 
         // Act
         var result = new KsqlProjectionBuilder().Build(expr.Body);
@@ -188,8 +188,8 @@ public class KsqlTranslationTests
     [Fact]
     public void SelectProjection_WithUnaryExpressionAndAlias_Should_GenerateExpectedKsql()
     {
-        // Arrange - ƒGƒCƒŠƒAƒX•t‚«‚ÅUnaryExpression‚ª”­¶‚·‚éê‡
-        Expression<Func<Order, object>> expr = o => new { Id = o.OrderId, Customer = o.CustomerId };
+        // Arrange - ï¿½Gï¿½Cï¿½ï¿½ï¿½Aï¿½Xï¿½tï¿½ï¿½ï¿½ï¿½UnaryExpressionï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ê‡
+        Expression<Func<OrderStringId, object>> expr = o => new { Id = o.OrderId, CustomerStringId = o.CustomerId };
 
         // Act
         var result = new KsqlProjectionBuilder().Build(expr.Body);
@@ -201,8 +201,8 @@ public class KsqlTranslationTests
     [Fact]
     public void SelectProjection_WithUnaryExpressionMultipleProperties_Should_GenerateExpectedKsql()
     {
-        // Arrange - •¡”ƒvƒƒpƒeƒB‚ÅUnaryExpression‚ª”­¶‚·‚éê‡
-        Expression<Func<Order, object>> expr = o => new { o.OrderId, o.CustomerId, o.Amount, o.Region };
+        // Arrange - ï¿½ï¿½ï¿½ï¿½ï¿½vï¿½ï¿½ï¿½pï¿½eï¿½Bï¿½ï¿½UnaryExpressionï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ê‡
+        Expression<Func<OrderStringId, object>> expr = o => new { o.OrderId, o.CustomerId, o.Amount, o.Region };
 
         // Act
         var result = new KsqlProjectionBuilder().Build(expr.Body);

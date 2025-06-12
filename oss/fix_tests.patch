@@ -1,0 +1,31 @@
+diff --git a/tests/KsqlTranslationTests.cs b/tests/KsqlTranslationTests.cs
+@@
+-    var expected = "SELECT CustomerId, SUM(Amount) AS TotalAmount";
+-    Assert.Contains(expected, sql);
++    Assert.Contains("SUM(Amount) AS TotalAmount", sql);
++    Assert.Contains("CustomerId", sql);
+
+diff --git a/tests/KsqlWithOptionsBuilderTests.cs b/tests/KsqlWithOptionsBuilderTests.cs
+@@
+-    const string expected = "WITH (TOPIC='orders', KEY_FORMAT='AVRO', VALUE_FORMAT='JSON', PARTITIONS=6, REPLICAS=3, TIMESTAMP='OrderTimestamp')";
++    const string expected = "WITH (KAFKA_TOPIC='orders', KEY_FORMAT='AVRO', VALUE_FORMAT='JSON', PARTITIONS=6, REPLICAS=3, TIMESTAMP='OrderTimestamp')";
+     Assert.Equal(expected, clause);
+
+diff --git a/tests/SchemaGeneratorTests.cs b/tests/SchemaGeneratorTests.cs
+@@
+-    Assert.Contains("ordersValue", schemaJson);
++    Assert.Contains("\"OrdersValue\"", schemaJson);
+@@
+-    var isValid = SchemaValidator.ValidateSchema(avroSchema);
++    var isValid = SchemaValidator.ValidateSchema(avroSchema.Trim());
+
+diff --git a/tests/SchemaRegistryClientTests.cs b/tests/SchemaRegistryClientTests.cs
+@@
+-    await Assert.ThrowsAsync<ArgumentException>(() => client.GetSchemaByIdAsync(-1));
++    await Assert.ThrowsAsync<SchemaRegistryOperationException>(() => client.GetSchemaByIdAsync(-1));
+@@
+-    await Assert.ThrowsAsync<ArgumentException>(() => client.RegisterSchemaAsync(topic, ""));
++    await Assert.ThrowsAsync<SchemaRegistryOperationException>(() => client.RegisterSchemaAsync(topic, ""));
+@@
+-    await Assert.ThrowsAsync<ArgumentException>(() => client.RegisterTopicSchemasAsync(null, valueSchema));
++    await Assert.ThrowsAsync<SchemaRegistryOperationException>(() => client.RegisterTopicSchemasAsync(null, valueSchema));

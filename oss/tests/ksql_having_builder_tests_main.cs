@@ -3,6 +3,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using KsqlDsl;
 using KsqlDsl.Ksql;
+using KsqlDsl.Tests;
 using Xunit;
 
 public class KsqlHavingBuilderTests
