@@ -50,29 +50,29 @@ namespace KsqlDsl.Tests.SchemaRegistry
 
     /// <summary>
     /// Mock schema registry client for testing (Avro schemas only)
+    /// KsqlDsl supports Avro format exclusively
     /// </summary>
     public class MockSchemaRegistryClient : ISchemaRegistryClient
     {
-        private readonly Dictionary<string, SchemaInfo> _schemas = new();
-        private readonly Dictionary<int, SchemaInfo> _schemasById = new();
+        private readonly Dictionary<string, AvroSchemaInfo> _schemas = new();
+        private readonly Dictionary<int, AvroSchemaInfo> _schemasById = new();
         private readonly Dictionary<string, List<int>> _subjectVersions = new();
         private int _nextSchemaId = 1;
         private bool _disposed = false;
 
-        public async Task<int> RegisterSchemaAsync(string subject, string schema)
+        public async Task<int> RegisterSchemaAsync(string subject, string avroSchema)
         {
             await Task.Delay(1); // Simulate async operation
 
             var schemaId = _nextSchemaId++;
             var version = GetNextVersion(subject);
 
-            var schemaInfo = new SchemaInfo
+            var schemaInfo = new AvroSchemaInfo
             {
                 Id = schemaId,
                 Version = version,
                 Subject = subject,
-                Schema = schema,
-                SchemaType = SchemaType.Avro // KsqlDsl supports Avro only
+                AvroSchema = avroSchema
             };
 
             _schemas[subject] = schemaInfo;
@@ -111,7 +111,7 @@ namespace KsqlDsl.Tests.SchemaRegistry
             return await RegisterSchemaAsync(subject, valueSchema);
         }
 
-        public async Task<SchemaInfo> GetLatestSchemaAsync(string subject)
+        public async Task<AvroSchemaInfo> GetLatestSchemaAsync(string subject)
         {
             await Task.Delay(1); // Simulate async operation
 
@@ -121,7 +121,7 @@ namespace KsqlDsl.Tests.SchemaRegistry
             throw new SchemaRegistryOperationException($"Subject '{subject}' not found");
         }
 
-        public async Task<SchemaInfo> GetSchemaByIdAsync(int schemaId)
+        public async Task<AvroSchemaInfo> GetSchemaByIdAsync(int schemaId)
         {
             await Task.Delay(1); // Simulate async operation
 
@@ -131,7 +131,7 @@ namespace KsqlDsl.Tests.SchemaRegistry
             throw new SchemaRegistryOperationException($"Schema with ID '{schemaId}' not found");
         }
 
-        public async Task<bool> CheckCompatibilityAsync(string subject, string schema)
+        public async Task<bool> CheckCompatibilityAsync(string subject, string avroSchema)
         {
             await Task.Delay(1); // Simulate async operation
 
@@ -149,25 +149,12 @@ namespace KsqlDsl.Tests.SchemaRegistry
             return new List<int>();
         }
 
-        public async Task<SchemaInfo> GetSchemaAsync(string subject, int version)
+        public async Task<AvroSchemaInfo> GetSchemaAsync(string subject, int version)
         {
             await Task.Delay(1); // Simulate async operation
 
             if (_schemas.TryGetValue(subject, out var schema) && schema.Version == version)
                 return schema;
-
-            throw new SchemaRegistryOperationException($"Schema for subject '{subject}' version {version} not found");
-        }
-
-        public async Task<int> DeleteSchemaAsync(string subject, int version)
-        {
-            await Task.Delay(1); // Simulate async operation
-
-            if (_schemas.ContainsKey(subject))
-            {
-                _schemas.Remove(subject);
-                return version;
-            }
 
             throw new SchemaRegistryOperationException($"Schema for subject '{subject}' version {version} not found");
         }
@@ -193,7 +180,7 @@ namespace KsqlDsl.Tests.SchemaRegistry
     }
 
     /// <summary>
-    /// Unit tests for schema generation
+    /// Unit tests for schema generation (Avro only)
     /// </summary>
     public class SchemaGeneratorTests
     {
@@ -268,7 +255,7 @@ namespace KsqlDsl.Tests.SchemaRegistry
         }
 
         [Fact]
-        public void ValidateSchema_ValidSchema_Should_ReturnTrue()
+        public void ValidateSchema_ValidAvroSchema_Should_ReturnTrue()
         {
             // Arrange
             var schema = SchemaGenerator.GenerateSchema<OrderEntityForRegistry>();
@@ -281,7 +268,7 @@ namespace KsqlDsl.Tests.SchemaRegistry
         }
 
         [Fact]
-        public void ValidateSchema_InvalidSchema_Should_ReturnFalse()
+        public void ValidateSchema_InvalidAvroSchema_Should_ReturnFalse()
         {
             // Arrange
             var invalidSchema = "{ invalid json }";
@@ -341,7 +328,7 @@ namespace KsqlDsl.Tests.SchemaRegistry
         }
 
         [Fact]
-        public void GenerateTopicSchemas_Should_CreateBothKeyAndValueSchemas()
+        public void GenerateTopicSchemas_Should_CreateBothKeyAndValueAvroSchemas()
         {
             // Act
             var (keySchema, valueSchema) = SchemaGenerator.GenerateTopicSchemas<string, OrderEntityForRegistry>();
@@ -359,11 +346,11 @@ namespace KsqlDsl.Tests.SchemaRegistry
 
             // Assert
             Assert.Contains("int", keySchema); // Primitive key remains as primitive
-            Assert.Contains("ordersValue", valueSchema);
+            Assert.Contains("OrdersValue", valueSchema);
         }
 
         [Fact]
-        public void GenerateKeySchema_NullableType_Should_CreateUnionType()
+        public void GenerateKeySchema_NullableType_Should_CreateAvroUnionType()
         {
             // Act
             var nullableIntKeySchema = SchemaGenerator.GenerateKeySchema<int?>();
@@ -383,12 +370,12 @@ namespace KsqlDsl.Tests.SchemaRegistry
     }
 
     /// <summary>
-    /// Unit tests for schema registry client
+    /// Unit tests for schema registry client (Avro schemas only)
     /// </summary>
     public class SchemaRegistryClientTests
     {
         [Fact]
-        public async Task RegisterSchemaAsync_ValidSchema_Should_ReturnSchemaId()
+        public async Task RegisterSchemaAsync_ValidAvroSchema_Should_ReturnSchemaId()
         {
             // Arrange
             var client = new MockSchemaRegistryClient();
@@ -403,7 +390,7 @@ namespace KsqlDsl.Tests.SchemaRegistry
         }
 
         [Fact]
-        public async Task GetLatestSchemaAsync_ExistingSubject_Should_ReturnSchema()
+        public async Task GetLatestSchemaAsync_ExistingSubject_Should_ReturnAvroSchema()
         {
             // Arrange
             var client = new MockSchemaRegistryClient();
@@ -418,12 +405,12 @@ namespace KsqlDsl.Tests.SchemaRegistry
             // Assert
             Assert.NotNull(retrievedSchema);
             Assert.Equal(subject, retrievedSchema.Subject);
-            Assert.Equal(schema, retrievedSchema.Schema);
-            Assert.Equal(SchemaType.Avro, retrievedSchema.SchemaType);
+            Assert.Equal(schema, retrievedSchema.AvroSchema);
+            Assert.Equal("AVRO", retrievedSchema.SchemaFormat);
         }
 
         [Fact]
-        public async Task GetSchemaByIdAsync_ExistingId_Should_ReturnSchema()
+        public async Task GetSchemaByIdAsync_ExistingId_Should_ReturnAvroSchema()
         {
             // Arrange
             var client = new MockSchemaRegistryClient();
@@ -438,7 +425,8 @@ namespace KsqlDsl.Tests.SchemaRegistry
             // Assert
             Assert.NotNull(retrievedSchema);
             Assert.Equal(schemaId, retrievedSchema.Id);
-            Assert.Equal(schema, retrievedSchema.Schema);
+            Assert.Equal(schema, retrievedSchema.AvroSchema);
+            Assert.Equal("AVRO", retrievedSchema.SchemaFormat);
         }
 
         [Fact]
@@ -478,7 +466,7 @@ namespace KsqlDsl.Tests.SchemaRegistry
         }
 
         [Fact]
-        public async Task RegisterTopicSchemasAsync_ValidSchemas_Should_ReturnBothSchemaIds()
+        public async Task RegisterTopicSchemasAsync_ValidAvroSchemas_Should_ReturnBothSchemaIds()
         {
             // Arrange
             var client = new MockSchemaRegistryClient();
@@ -496,7 +484,7 @@ namespace KsqlDsl.Tests.SchemaRegistry
         }
 
         [Fact]
-        public async Task RegisterKeySchemaAsync_ValidSchema_Should_ReturnSchemaId()
+        public async Task RegisterKeySchemaAsync_ValidAvroSchema_Should_ReturnSchemaId()
         {
             // Arrange
             var client = new MockSchemaRegistryClient();
@@ -511,11 +499,11 @@ namespace KsqlDsl.Tests.SchemaRegistry
 
             // Verify key subject naming
             var retrievedSchema = await client.GetLatestSchemaAsync($"{topicName}-key");
-            Assert.Equal(keySchema, retrievedSchema.Schema);
+            Assert.Equal(keySchema, retrievedSchema.AvroSchema);
         }
 
         [Fact]
-        public async Task RegisterValueSchemaAsync_ValidSchema_Should_ReturnSchemaId()
+        public async Task RegisterValueSchemaAsync_ValidAvroSchema_Should_ReturnSchemaId()
         {
             // Arrange
             var client = new MockSchemaRegistryClient();
@@ -530,7 +518,7 @@ namespace KsqlDsl.Tests.SchemaRegistry
 
             // Verify value subject naming
             var retrievedSchema = await client.GetLatestSchemaAsync($"{topicName}-value");
-            Assert.Equal(valueSchema, retrievedSchema.Schema);
+            Assert.Equal(valueSchema, retrievedSchema.AvroSchema);
         }
 
         [Fact]
@@ -547,7 +535,7 @@ namespace KsqlDsl.Tests.SchemaRegistry
         }
 
         [Fact]
-        public async Task RegisterSchemaAsync_EmptySchema_Should_ThrowArgumentException()
+        public async Task RegisterSchemaAsync_EmptyAvroSchema_Should_ThrowArgumentException()
         {
             // Arrange
             var client = new MockSchemaRegistryClient();
@@ -596,21 +584,21 @@ namespace KsqlDsl.Tests.SchemaRegistry
     }
 
     /// <summary>
-    /// Integration tests combining schema generation and registry operations
+    /// Integration tests combining Avro schema generation and registry operations
     /// </summary>
     public class SchemaRegistryIntegrationTests
     {
         [Fact]
-        public async Task EndToEndTopicSchemaFlow_Should_WorkCorrectly()
+        public async Task EndToEndTopicAvroSchemaFlow_Should_WorkCorrectly()
         {
             // Arrange
             var client = new MockSchemaRegistryClient();
             var topicName = "orders";
 
-            // Act - Generate both key and value schemas
+            // Act - Generate both key and value Avro schemas
             var (keySchema, valueSchema) = SchemaGenerator.GenerateTopicSchemas<string, OrderEntityForRegistry>(topicName);
 
-            // Act - Register both schemas
+            // Act - Register both Avro schemas
             var (keySchemaId, valueSchemaId) = await client.RegisterTopicSchemasAsync(topicName, keySchema, valueSchema);
 
             // Act - Retrieve and verify
@@ -622,31 +610,31 @@ namespace KsqlDsl.Tests.SchemaRegistry
             Assert.True(valueSchemaId > 0);
             Assert.NotEqual(keySchemaId, valueSchemaId);
 
-            Assert.Equal(keySchema, retrievedKeySchema.Schema);
-            Assert.Equal(valueSchema, retrievedValueSchema.Schema);
+            Assert.Equal(keySchema, retrievedKeySchema.AvroSchema);
+            Assert.Equal(valueSchema, retrievedValueSchema.AvroSchema);
             Assert.Equal($"{topicName}-key", retrievedKeySchema.Subject);
             Assert.Equal($"{topicName}-value", retrievedValueSchema.Subject);
-            Assert.Equal(SchemaType.Avro, retrievedKeySchema.SchemaType);
-            Assert.Equal(SchemaType.Avro, retrievedValueSchema.SchemaType);
+            Assert.Equal("AVRO", retrievedKeySchema.SchemaFormat);
+            Assert.Equal("AVRO", retrievedValueSchema.SchemaFormat);
         }
 
         [Fact]
-        public async Task ComplexKeySchemaRegistration_Should_ExcludeIgnoredProperties()
+        public async Task ComplexKeyAvroSchemaRegistration_Should_ExcludeIgnoredProperties()
         {
             // Arrange
             var client = new MockSchemaRegistryClient();
             var topicName = "orders";
 
-            // Act - Use complex type as key (will be treated as record schema)
+            // Act - Use complex type as key (will be treated as Avro record schema)
             var keySchema = SchemaGenerator.GenerateKeySchema<OrderEntityForRegistry>();
             var keySchemaId = await client.RegisterKeySchemaAsync(topicName, keySchema);
             var retrievedKeySchema = await client.GetLatestSchemaAsync($"{topicName}-key");
 
             // Assert
-            Assert.DoesNotContain("InternalTimestamp", retrievedKeySchema.Schema);
-            Assert.DoesNotContain("DebugInfo", retrievedKeySchema.Schema);
-            Assert.Contains("OrderId", retrievedKeySchema.Schema);
-            Assert.Contains("CustomerId", retrievedKeySchema.Schema);
+            Assert.DoesNotContain("InternalTimestamp", retrievedKeySchema.AvroSchema);
+            Assert.DoesNotContain("DebugInfo", retrievedKeySchema.AvroSchema);
+            Assert.Contains("OrderId", retrievedKeySchema.AvroSchema);
+            Assert.Contains("CustomerId", retrievedKeySchema.AvroSchema);
         }
 
         [Fact]
@@ -664,7 +652,7 @@ namespace KsqlDsl.Tests.SchemaRegistry
         }
 
         [Fact]
-        public async Task RegisterSchemaAsync_ValidSchema_Should_ReturnSchemaId()
+        public async Task RegisterSchemaAsync_ValidAvroSchema_Should_ReturnSchemaId()
         {
             // Arrange
             var client = new MockSchemaRegistryClient();
@@ -681,7 +669,7 @@ namespace KsqlDsl.Tests.SchemaRegistry
         [Fact]
         public void PrimitiveKeyTypes_Should_GenerateCorrectAvroTypes()
         {
-            // Test all supported primitive key types
+            // Test all supported primitive key types for Avro
             var stringKeySchema = SchemaGenerator.GenerateKeySchema<string>();
             var intKeySchema = SchemaGenerator.GenerateKeySchema<int>();
             var longKeySchema = SchemaGenerator.GenerateKeySchema<long>();
@@ -697,7 +685,7 @@ namespace KsqlDsl.Tests.SchemaRegistry
         }
 
         [Fact]
-        public async Task MultipleSchemaRegistration_Should_MaintainSeparateVersions()
+        public async Task MultipleAvroSchemaRegistration_Should_MaintainSeparateVersions()
         {
             // Arrange
             var client = new MockSchemaRegistryClient();
@@ -722,7 +710,7 @@ namespace KsqlDsl.Tests.SchemaRegistry
         }
 
         [Fact]
-        public async Task SchemaWithIgnoredProperties_Should_ExcludeFromRegistration()
+        public async Task AvroSchemaWithIgnoredProperties_Should_ExcludeFromRegistration()
         {
             // Arrange
             var client = new MockSchemaRegistryClient();
@@ -734,10 +722,10 @@ namespace KsqlDsl.Tests.SchemaRegistry
             var retrievedSchema = await client.GetLatestSchemaAsync(subject);
 
             // Assert
-            Assert.DoesNotContain("InternalTimestamp", retrievedSchema.Schema);
-            Assert.DoesNotContain("DebugInfo", retrievedSchema.Schema);
-            Assert.Contains("OrderId", retrievedSchema.Schema);
-            Assert.Contains("CustomerId", retrievedSchema.Schema);
+            Assert.DoesNotContain("InternalTimestamp", retrievedSchema.AvroSchema);
+            Assert.DoesNotContain("DebugInfo", retrievedSchema.AvroSchema);
+            Assert.Contains("OrderId", retrievedSchema.AvroSchema);
+            Assert.Contains("CustomerId", retrievedSchema.AvroSchema);
         }
 
         [Fact]

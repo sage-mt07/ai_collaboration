@@ -8,6 +8,8 @@ using Xunit;
 namespace KsqlDsl.Tests
 {
     /// <summary>
+    /// Comprehensive tests for KSQL translation functionality
+    /// </summary>
     public class KsqlTranslationTests
     {
         #region KsqlProjectionBuilder Tests
@@ -323,9 +325,10 @@ namespace KsqlDsl.Tests
             Expression<Func<IGrouping<string, Order>, bool>> havingExpr = g => g.Sum(x => x.Amount) > 1000;
             var havingClause = new KsqlHavingBuilder().Build(havingExpr.Body);
             
-		    // 順不同で列の存在を確認
-		    Assert.Contains("SUM(Amount) AS TotalAmount", sql);
-		    Assert.Contains("CustomerId", sql);
+            // Assert individual clauses
+            // 順不同で列の存在を確認
+            Assert.Contains("SUM(Amount) AS TotalAmount", selectClause);
+            Assert.Contains("CustomerId", selectClause);
             Assert.Equal("WHERE (Amount > 100)", whereClause);
             Assert.Equal("GROUP BY CustomerId", groupByClause);
             Assert.Equal("HAVING (SUM(Amount) > 1000)", havingClause);

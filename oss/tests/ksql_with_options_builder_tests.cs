@@ -23,7 +23,7 @@ namespace KsqlDsl.Tests
 
             var result = options.BuildWithClause();
 			const string expected = "WITH (KAFKA_TOPIC='orders', KEY_FORMAT='AVRO', VALUE_FORMAT='JSON', PARTITIONS=6, REPLICAS=3, TIMESTAMP='OrderTimestamp')";
-		    Assert.Equal(expected, clause);
+		    Assert.Equal(expected, result);
         }
     }
 }

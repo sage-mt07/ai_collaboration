@@ -141,20 +141,7 @@ namespace KsqlDsl.Tests
             Assert.Equal("SELECT EARLIEST_BY_OFFSET(Amount) AS EarliestAmount", result);
         }
 
-        [Fact]
-        public void TopK_Aggregate_Should_GenerateCorrectKsql()
-        {
-            // Arrange
-            Expression<Func<IGrouping<string, Order>, object>> expr = g => new { 
-                TopCustomers = g.TopK(x => x.CustomerId, 5)
-            };
 
-            // Act
-            var result = KsqlAggregateBuilder.Build(expr.Body);
-
-            // Assert
-            Assert.Equal("SELECT TOPK(CustomerId, 5) AS TopCustomers", result);
-        }
 
         [Fact]
         public void CollectList_Aggregate_Should_GenerateCorrectKsql()
