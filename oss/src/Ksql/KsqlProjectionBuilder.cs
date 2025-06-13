@@ -32,10 +32,12 @@ internal class KsqlProjectionBuilder : ExpressionVisitor
     {
         for (int i = 0; i < node.Arguments.Count; i++)
         {
-            if (node.Arguments[i] is MemberExpression member)
+            var arg = node.Arguments[i];
+            var alias = node.Members?[i]?.Name;
+
+            if (arg is MemberExpression member)
             {
                 var memberName = member.Member.Name;
-                var alias = node.Members?[i]?.Name;
                 
                 if (!string.IsNullOrEmpty(alias) && alias != memberName)
                 {
@@ -46,11 +48,10 @@ internal class KsqlProjectionBuilder : ExpressionVisitor
                     _sb.Append($"{memberName}, ");
                 }
             }
-            else if (node.Arguments[i] is UnaryExpression unary && unary.Operand is MemberExpression unaryMember)
+            else if (arg is UnaryExpression unary && unary.Operand is MemberExpression unaryMember)
             {
                 // Handle UnaryExpression wrapping (like type conversions)
                 var memberName = unaryMember.Member.Name;
-                var alias = node.Members?[i]?.Name;
                 
                 if (!string.IsNullOrEmpty(alias) && alias != memberName)
                 {
@@ -64,11 +65,11 @@ internal class KsqlProjectionBuilder : ExpressionVisitor
             else
             {
                 // Handle other expression types (constants, method calls, etc.)
-                var alias = node.Members?[i]?.Name ?? $"expr{i}";
-                Visit(node.Arguments[i]);
-                if (!string.IsNullOrEmpty(alias))
+                var aliasToUse = alias ?? $"expr{i}";
+                Visit(arg);
+                if (!string.IsNullOrEmpty(aliasToUse))
                 {
-                    _sb.Append($" AS {alias}");
+                    _sb.Append($" AS {aliasToUse}");
                 }
                 _sb.Append(", ");
             }

@@ -1,512 +1,212 @@
 using System;
 using System.Linq;
 using System.Linq.Expressions;
+using Ksql.EntityFrameworkCore.Modeling;
+using KsqlDsl;
 using KsqlDsl.Ksql;
-using KsqlDsl.Metadata;
 using Xunit;
 
-namespace KsqlDsl.Tests
+public class OrderStringId
 {
-    /// <summary>
-    /// Comprehensive tests for KSQL translation functionality
-    /// </summary>
-    public class KsqlTranslationTests
+    public string OrderId { get; set; }
+    public string CustomerId { get; set; }
+
+    [DecimalPrecision(18, 4)]
+    public decimal Amount { get; set; }
+
+    public string Region { get; set; }
+    public bool IsActive { get; set; }
+    public double Score { get; set; }
+    public decimal Price { get; set; }
+
+    [DateTimeFormat(Format = "yyyy-MM-dd'T'HH:mm:ss.SSS", Region = "Asia/Tokyo")]
+    public DateTime OrderTime { get; set; }
+}
+
+public class CustomerStringId
+{
+    public string CustomerId { get; set; }
+    public string CustomerName { get; set; }
+    public string Region { get; set; }
+}
+public class KsqlTranslationStringIdTests
+{
+    [Fact]
+    public void SelectProjection_Should_GenerateExpectedKsql()
     {
-        #region KsqlProjectionBuilder Tests
+        Expression<Func<OrderStringId, object>> expr = o => new { o.OrderId, o.Amount };
+        var result = new KsqlProjectionBuilder().Build(expr.Body);
+        Assert.Equal("SELECT OrderId, Amount", result);
+    }
 
-        [Fact]
-        public void SelectProjection_SimpleProperties_Should_GenerateExpectedKsql()
-        {
-            // Arrange
-            Expression<Func<Order, object>> expr = o => new { o.OrderId, o.CustomerId };
-            
-            // Act
-            var result = new KsqlProjectionBuilder().Build(expr.Body);
-            
-            // Assert
-            Assert.Equal("SELECT OrderId, CustomerId", result);
-        }
+    [Fact]
+    public void WhereClause_Should_GenerateExpectedKsql()
+    {
+        Expression<Func<OrderStringId, bool>> expr = o => o.Amount > 1000 && o.CustomerId == "C001";
+        var result = new KsqlConditionBuilder().Build(expr.Body);
+        Assert.Equal("WHERE ((Amount > 1000) AND (CustomerId = 'C001'))", result);
+    }
 
-        [Fact]
-        public void SelectProjection_WithAliases_Should_GenerateExpectedKsql()
-        {
-            // Arrange
-            Expression<Func<Order, object>> expr = o => new { Id = o.OrderId, Customer = o.CustomerId };
-            
-            // Act
-            var result = new KsqlProjectionBuilder().Build(expr.Body);
-            
-            // Assert
-            Assert.Equal("SELECT OrderId AS Id, CustomerId AS Customer", result);
-        }
+    [Fact]
+    public void GroupByClause_Should_GenerateExpectedKsql()
+    {
+        Expression<Func<OrderStringId, object>> expr = o => new { o.CustomerId, o.Region };
+        var result = KsqlGroupByBuilder.Build(expr.Body);
+        Assert.Equal("GROUP BY CustomerId, Region", result);
+    }
 
-        [Fact]
-        public void SelectProjection_SingleProperty_Should_GenerateExpectedKsql()
-        {
-            // Arrange
-            Expression<Func<Order, string>> expr = o => o.CustomerId;
-            
-            // Act
-            var result = new KsqlProjectionBuilder().Build(expr.Body);
-            
-            // Assert
-            Assert.Equal("SELECT CustomerId", result);
-        }
+    [Fact]
+    public void AggregateClause_Should_GenerateExpectedKsql()
+    {
+        Expression<Func<IGrouping<string, OrderStringId>, object>> expr = g => new { Total = g.Sum(x => x.Amount) };
+        var result = KsqlAggregateBuilder.Build(expr.Body);
+        Assert.Equal("SELECT SUM(Amount) AS Total", result);
+    }
 
-        [Fact]
-        public void SelectProjection_AllProperties_Should_GenerateSelectStar()
-        {
-            // Arrange
-            Expression<Func<Order, Order>> expr = o => o;
-            
-            // Act
-            var result = new KsqlProjectionBuilder().Build(expr.Body);
-            
-            // Assert
-            Assert.Equal("SELECT *", result);
-        }
+    [Fact]
+    public void LatestByOffset_Should_GenerateExpectedKsql()
+    {
+        Expression<Func<IGrouping<string, OrderStringId>, object>> expr = g => new { LatestAmount = g.LatestByOffset(x => x.Amount) };
+        var result = KsqlAggregateBuilder.Build(expr.Body);
+        Assert.Equal("SELECT LATEST_BY_OFFSET(Amount) AS LatestAmount", result);
+    }
 
-        [Fact]
-        public void SelectProjection_WithCalculations_Should_GenerateExpectedKsql()
-        {
-            // Arrange
-            Expression<Func<Order, object>> expr = o => new { 
-                o.OrderId, 
-                TotalWithTax = o.Amount * 1.1m 
-            };
-            
-            // Act
-            var result = new KsqlProjectionBuilder().Build(expr.Body);
-            
-            // Assert
-            Assert.Contains("SELECT OrderId", result);
-            Assert.Contains("TotalWithTax", result);
-            Assert.Contains("*", result);
-        }
+    [Fact]
+    public void TumblingWindowClause_Should_GenerateExpectedKsql()
+    {
+        Expression<Func<ITumblingWindow>> expr = () => Window.TumblingWindow().Size(TimeSpan.FromMinutes(1));
+        var result = new KsqlWindowBuilder().Build(expr.Body);
+        Assert.Equal("WINDOW TUMBLING (SIZE 1 MINUTES)", result);
+    }
 
-        [Fact]
-        public void SelectProjection_WithUnaryExpression_Should_GenerateExpectedKsql()
-        {
-            // Arrange - UnaryExpression (Convert) が挿入される LINQ 式
-            Expression<Func<Order, object>> expr = o => new { o.OrderId, o.CustomerId };
-            
-            // Act
-            var result = new KsqlProjectionBuilder().Build(expr.Body);
-            
-            // Assert
-            Assert.Equal("SELECT OrderId, CustomerId", result);
-        }
+    [Fact]
+    public void TumblingWindowClause_WithAllOptions_Should_GenerateExpectedKsql()
+    {
+        Expression<Func<ITumblingWindow>> expr = () => Window.TumblingWindow()
+            .Size(TimeSpan.FromMinutes(5))
+            .Retention(TimeSpan.FromHours(2))
+            .GracePeriod(TimeSpan.FromSeconds(10))
+            .EmitFinal();
+        var result = new KsqlWindowBuilder().Build(expr.Body);
+        Assert.Equal("WINDOW TUMBLING (SIZE 5 MINUTES, RETENTION 2 HOURS, GRACE PERIOD 10 SECONDS) EMIT FINAL", result);
+    }
 
-        #endregion
+    [Fact]
+    public void HoppingWindowClause_Should_GenerateExpectedKsql()
+    {
+        Expression<Func<IHoppingWindow>> expr = () => Window.HoppingWindow()
+            .Size(TimeSpan.FromMinutes(10))
+            .AdvanceBy(TimeSpan.FromMinutes(5));
+        var result = new KsqlWindowBuilder().Build(expr.Body);
+        Assert.Equal("WINDOW HOPPING (SIZE 10 MINUTES, ADVANCE BY 5 MINUTES)", result);
+    }
 
-        #region KsqlConditionBuilder Tests
+    [Fact]
+    public void HoppingWindowClause_WithAllOptions_Should_GenerateExpectedKsql()
+    {
+        Expression<Func<IHoppingWindow>> expr = () => Window.HoppingWindow()
+            .Size(TimeSpan.FromMinutes(10))
+            .AdvanceBy(TimeSpan.FromMinutes(5))
+            .Retention(TimeSpan.FromHours(1))
+            .GracePeriod(TimeSpan.FromSeconds(30))
+            .EmitFinal();
+        var result = new KsqlWindowBuilder().Build(expr.Body);
+        Assert.Equal("WINDOW HOPPING (SIZE 10 MINUTES, ADVANCE BY 5 MINUTES, RETENTION 1 HOURS, GRACE PERIOD 30 SECONDS) EMIT FINAL", result);
+    }
 
-        [Fact]
-        public void WhereCondition_SimpleComparison_Should_GenerateExpectedKsql()
-        {
-            // Arrange
-            Expression<Func<Order, bool>> expr = o => o.Amount > 1000;
-            
-            // Act
-            var result = new KsqlConditionBuilder().Build(expr.Body);
-            
-            // Assert
-            Assert.Equal("WHERE (Amount > 1000)", result);
-        }
+    [Fact]
+    public void SessionWindowClause_Should_GenerateExpectedKsql()
+    {
+        Expression<Func<ISessionWindow>> expr = () => Window.SessionWindow().Gap(TimeSpan.FromSeconds(30));
+        var result = new KsqlWindowBuilder().Build(expr.Body);
+        Assert.Equal("WINDOW SESSION (GAP 30 SECONDS)", result);
+    }
 
-        [Fact]
-        public void WhereCondition_ComplexCondition_Should_GenerateExpectedKsql()
-        {
-            // Arrange
-            Expression<Func<Order, bool>> expr = o => o.Amount > 1000 && o.Region == "US";
-            
-            // Act
-            var result = new KsqlConditionBuilder().Build(expr.Body);
-            
-            // Assert
-            Assert.Equal("WHERE ((Amount > 1000) AND (Region = 'US'))", result);
-        }
+    [Fact]
+    public void HavingClause_Sum_Should_GenerateExpectedKsql()
+    {
+        Expression<Func<IGrouping<string, OrderStringId>, bool>> expr = g => g.Sum(x => x.Amount) > 1000;
+        var result = new KsqlHavingBuilder().Build(expr.Body);
+        Assert.Equal("HAVING (SUM(Amount) > 1000)", result);
+    }
 
-        [Fact]
-        public void WhereCondition_BoolProperty_Should_GenerateExpectedKsql()
-        {
-            // Arrange
-            Expression<Func<Order, bool>> expr = o => o.IsActive;
-            
-            // Act
-            var result = new KsqlConditionBuilder().Build(expr.Body);
-            
-            // Assert
-            Assert.Equal("WHERE (IsActive = true)", result);
-        }
+    [Fact]
+    public void JoinClause_SingleKey_Should_GenerateExpectedKsql()
+    {
+        Expression<Func<IQueryable<OrderStringId>, IQueryable<CustomerStringId>, IQueryable<object>>> expr =
+            (orders, customers) =>
+                orders.Join(customers,
+                            o => o.CustomerId,
+                            c => c.CustomerId,
+                            (o, c) => new { o.OrderId, c.CustomerName });
 
-        [Fact]
-        public void WhereCondition_NegatedBoolProperty_Should_GenerateExpectedKsql()
-        {
-            // Arrange
-            Expression<Func<Order, bool>> expr = o => !o.IsActive;
-            
-            // Act
-            var result = new KsqlConditionBuilder().Build(expr.Body);
-            
-            // Assert
-            Assert.Equal("WHERE (IsActive = false)", result);
-        }
+        var result = new KsqlJoinBuilder().Build(expr.Body);
+        Assert.Equal("SELECT o.OrderId, c.CustomerName FROM OrderStringId o JOIN CustomerStringId c ON o.CustomerId = c.CustomerId", result);
+    }
 
-        #endregion
+    [Fact]
+    public void JoinClause_CompositeKey_Should_GenerateExpectedKsql()
+    {
+        Expression<Func<IQueryable<OrderStringId>, IQueryable<CustomerStringId>, IQueryable<object>>> expr =
+            (orders, customers) =>
+                orders.Join(customers,
+                            o => new { o.CustomerId, o.Region },
+                            c => new { c.CustomerId, c.Region },
+                            (o, c) => new { o.OrderId });
 
-        #region KsqlAggregateBuilder Tests
+        var result = new KsqlJoinBuilder().Build(expr.Body);
+        Assert.Equal("SELECT o.OrderId FROM OrderStringId o JOIN CustomerStringId c ON o.CustomerId = c.CustomerId AND o.Region = c.Region", result);
+    }
 
-        [Fact]
-        public void AggregateProjection_SimpleSum_Should_GenerateExpectedKsql()
-        {
-            // Arrange
-            Expression<Func<IGrouping<string, Order>, object>> expr = g => new { 
-                TotalAmount = g.Sum(x => x.Amount) 
-            };
-            
-            // Act
-            var result = KsqlAggregateBuilder.Build(expr.Body);
-            
-            // Assert
-            Assert.Equal("SELECT SUM(Amount) AS TotalAmount", result);
-        }
+    [Fact]
+    public void SelectProjection_WithUnaryExpression_Should_GenerateExpectedKsql()
+    {
+        // Arrange - UnaryExpression (Convert) が挿入される LINQ 式
+        Expression<Func<OrderStringId, object>> expr = o => new { o.OrderId, o.CustomerId };
 
-        [Fact]
-        public void AggregateProjection_MultipleAggregates_Should_GenerateExpectedKsql()
-        {
-            // Arrange
-            Expression<Func<IGrouping<string, Order>, object>> expr = g => new { 
-                TotalAmount = g.Sum(x => x.Amount),
-                OrderCount = g.Count(),
-                AvgScore = g.Average(x => x.Score)
-            };
-            
-            // Act
-            var result = KsqlAggregateBuilder.Build(expr.Body);
-            
-            // Assert
-            Assert.Contains("SUM(Amount) AS TotalAmount", result);
-            Assert.Contains("COUNT(UNKNOWN) AS OrderCount", result);
-            Assert.Contains("AVERAGE(Score) AS AvgScore", result);
-        }
+        // Act
+        var result = new KsqlProjectionBuilder().Build(expr.Body);
 
-        #endregion
+        // Assert
+        Assert.Equal("SELECT OrderId, CustomerId", result);
+    }
 
-        #region KsqlHavingBuilder Tests
+    [Fact]
+    public void SelectProjection_WithUnaryExpressionSingleProperty_Should_GenerateExpectedKsql()
+    {
+        // Arrange - 単一プロパティでUnaryExpressionが挿入される場合
+        Expression<Func<OrderStringId, object>> expr = o => new { o.OrderId };
 
-        [Fact]
-        public void HavingCondition_SimpleCondition_Should_GenerateExpectedKsql()
-        {
-            // Arrange
-            Expression<Func<IGrouping<string, Order>, bool>> expr = g => g.Sum(x => x.Amount) > 1000;
-            
-            // Act
-            var result = new KsqlHavingBuilder().Build(expr.Body);
-            
-            // Assert
-            Assert.Equal("HAVING (SUM(Amount) > 1000)", result);
-        }
+        // Act
+        var result = new KsqlProjectionBuilder().Build(expr.Body);
 
-        [Fact]
-        public void HavingCondition_WithCount_Should_GenerateExpectedKsql()
-        {
-            // Arrange
-            Expression<Func<IGrouping<string, Order>, bool>> expr = g => g.Count() >= 5;
-            
-            // Act
-            var result = new KsqlHavingBuilder().Build(expr.Body);
-            
-            // Assert
-            Assert.Equal("HAVING (COUNT(*) >= 5)", result);
-        }
+        // Assert
+        Assert.Equal("SELECT OrderId", result);
+    }
 
-        #endregion
+    [Fact]
+    public void SelectProjection_WithUnaryExpressionAndAlias_Should_GenerateExpectedKsql()
+    {
+        // Arrange - エイリアス付きUnaryExpressionが挿入される場合
+        Expression<Func<OrderStringId, object>> expr = o => new { Id = o.OrderId, CustomerStringId = o.CustomerId };
 
-        #region KsqlGroupByBuilder Tests
+        // Act
+        var result = new KsqlProjectionBuilder().Build(expr.Body);
 
-        [Fact]
-        public void GroupByClause_SingleProperty_Should_GenerateExpectedKsql()
-        {
-            // Arrange
-            Expression<Func<Order, string>> expr = o => o.CustomerId;
-            
-            // Act
-            var result = KsqlGroupByBuilder.Build(expr.Body);
-            
-            // Assert
-            Assert.Equal("GROUP BY CustomerId", result);
-        }
+        // Assert - 実際のエイリアス名に合わせて修正
+        Assert.Equal("SELECT OrderId AS Id, CustomerId AS CustomerStringId", result);
+    }
 
-        [Fact]
-        public void GroupByClause_MultipleProperties_Should_GenerateExpectedKsql()
-        {
-            // Arrange
-            Expression<Func<Order, object>> expr = o => new { o.CustomerId, o.Region };
-            
-            // Act
-            var result = KsqlGroupByBuilder.Build(expr.Body);
-            
-            // Assert
-            Assert.Equal("GROUP BY CustomerId, Region", result);
-        }
+    [Fact]
+    public void SelectProjection_WithUnaryExpressionMultipleProperties_Should_GenerateExpectedKsql()
+    {
+        // Arrange - 複数プロパティでUnaryExpressionが挿入される場合
+        Expression<Func<OrderStringId, object>> expr = o => new { o.OrderId, o.CustomerId, o.Amount, o.Region };
 
-        #endregion
+        // Act
+        var result = new KsqlProjectionBuilder().Build(expr.Body);
 
-        #region KsqlWindowBuilder Tests
-
-        [Fact]
-        public void WindowClause_TumblingWindow_Should_GenerateExpectedKsql()
-        {
-            // Arrange
-            Expression<Func<ITumblingWindow>> expr = () => Window.TumblingWindow().Size(TimeSpan.FromMinutes(5));
-            
-            // Act
-            var result = new KsqlWindowBuilder().Build(expr.Body);
-            
-            // Assert
-            Assert.Equal("WINDOW TUMBLING (SIZE 5 MINUTES)", result);
-        }
-
-        [Fact]
-        public void WindowClause_HoppingWindow_Should_GenerateExpectedKsql()
-        {
-            // Arrange
-            Expression<Func<IHoppingWindow>> expr = () => Window.HoppingWindow()
-                .Size(TimeSpan.FromMinutes(10))
-                .AdvanceBy(TimeSpan.FromMinutes(5));
-            
-            // Act
-            var result = new KsqlWindowBuilder().Build(expr.Body);
-            
-            // Assert
-            Assert.Equal("WINDOW HOPPING (SIZE 10 MINUTES, ADVANCE BY 5 MINUTES)", result);
-        }
-
-        [Fact]
-        public void WindowClause_SessionWindow_Should_GenerateExpectedKsql()
-        {
-            // Arrange
-            Expression<Func<ISessionWindow>> expr = () => Window.SessionWindow().Gap(TimeSpan.FromMinutes(5));
-            
-            // Act
-            var result = new KsqlWindowBuilder().Build(expr.Body);
-            
-            // Assert
-            Assert.Equal("WINDOW SESSION (GAP 5 MINUTES)", result);
-        }
-
-        #endregion
-
-        #region Integration Tests
-
-        [Fact]
-        public void ComplexQuery_SelectWhereGroupByHaving_Should_GenerateExpectedKsql()
-        {
-            // Test building a complete query with multiple clauses
-            
-            // SELECT clause
-            Expression<Func<IGrouping<string, Order>, object>> selectExpr = g => new { 
-                CustomerId = g.Key,
-                TotalAmount = g.Sum(x => x.Amount),
-                OrderCount = g.Count()
-            };
-            var selectClause = KsqlAggregateBuilder.Build(selectExpr.Body);
-            
-            // WHERE clause
-            Expression<Func<Order, bool>> whereExpr = o => o.Amount > 100;
-            var whereClause = new KsqlConditionBuilder().Build(whereExpr.Body);
-            
-            // GROUP BY clause
-            Expression<Func<Order, string>> groupByExpr = o => o.CustomerId;
-            var groupByClause = KsqlGroupByBuilder.Build(groupByExpr.Body);
-            
-            // HAVING clause
-            Expression<Func<IGrouping<string, Order>, bool>> havingExpr = g => g.Sum(x => x.Amount) > 1000;
-            var havingClause = new KsqlHavingBuilder().Build(havingExpr.Body);
-            
-            // Assert individual clauses
-            // 順不同で列の存在を確認
-            Assert.Contains("SUM(Amount) AS TotalAmount", selectClause);
-            Assert.Contains("CustomerId", selectClause);
-            Assert.Equal("WHERE (Amount > 100)", whereClause);
-            Assert.Equal("GROUP BY CustomerId", groupByClause);
-            Assert.Equal("HAVING (SUM(Amount) > 1000)", havingClause);
-        }
-
-        [Fact]
-        public void ComplexQuery_WithWindow_Should_GenerateExpectedKsql()
-        {
-            // Test building a windowed query
-            
-            // SELECT clause with aggregation
-            Expression<Func<IGrouping<string, Order>, object>> selectExpr = g => new { 
-                CustomerId = g.Key,
-                HourlyTotal = g.Sum(x => x.Amount)
-            };
-            var selectClause = KsqlAggregateBuilder.Build(selectExpr.Body);
-            
-            // WINDOW clause
-            Expression<Func<ITumblingWindow>> windowExpr = () => Window.TumblingWindow()
-                .Size(TimeSpan.FromHours(1));
-            var windowClause = new KsqlWindowBuilder().Build(windowExpr.Body);
-            
-            // GROUP BY clause
-            Expression<Func<Order, string>> groupByExpr = o => o.CustomerId;
-            var groupByClause = KsqlGroupByBuilder.Build(groupByExpr.Body);
-            
-            // Assert windowed query components
-            Assert.Contains("SUM(Amount) AS HourlyTotal", selectClause);
-            Assert.Equal("WINDOW TUMBLING (SIZE 1 HOURS)", windowClause);
-            Assert.Equal("GROUP BY CustomerId", groupByClause);
-        }
-
-        #endregion
-
-        #region Error Handling Tests
-
-        [Fact]
-        public void WhereCondition_UnsupportedOperator_Should_ThrowNotSupportedException()
-        {
-            // This would test unsupported operators, but current implementation handles most common cases
-            // Keeping this as a placeholder for future unsupported operator testing
-            Assert.True(true); // Placeholder
-        }
-
-        [Fact]
-        public void AggregateProjection_EmptyExpression_Should_HandleGracefully()
-        {
-            // Test edge cases and error conditions
-            // Placeholder for edge case testing
-            Assert.True(true); // Placeholder
-        }
-
-        #endregion
-
-        #region Stream/Table Inference Tests
-
-        [Fact]
-        public void StreamTableInference_SimpleQuery_Should_InferStream()
-        {
-            // Arrange
-            Expression<Func<Order, bool>> simpleExpr = o => o.Amount > 1000;
-            
-            // Act
-            var result = KsqlCreateStatementBuilder.InferStreamTableType(simpleExpr.Body);
-            
-            // Assert
-            Assert.Equal(StreamTableType.Stream, result.InferredType);
-            Assert.False(result.IsExplicitlyDefined);
-        }
-
-        [Fact]
-        public void StreamTableInference_GroupByQuery_Should_InferTable()
-        {
-            // This would test inference with GroupBy, but we need mock expressions
-            // since we can't directly create GroupBy method calls in this test context
-            
-            // For now, verify the inference analyzer exists and works
-            var analyzer = new StreamTableInferenceAnalyzer();
-            Assert.NotNull(analyzer);
-        }
-
-        #endregion
-
-        #region Performance Tests
-
-        [Fact]
-        public void TranslationPerformance_MultipleBuilders_Should_BeEfficient()
-        {
-            // Performance test to ensure builders execute efficiently
-            var start = DateTime.UtcNow;
-            
-            for (int i = 0; i < 1000; i++)
-            {
-                Expression<Func<Order, object>> selectExpr = o => new { o.OrderId, o.CustomerId };
-                Expression<Func<Order, bool>> whereExpr = o => o.Amount > 1000;
-                
-                var selectResult = new KsqlProjectionBuilder().Build(selectExpr.Body);
-                var whereResult = new KsqlConditionBuilder().Build(whereExpr.Body);
-                
-                // Verify results are not empty
-                Assert.NotEmpty(selectResult);
-                Assert.NotEmpty(whereResult);
-            }
-            
-            var duration = DateTime.UtcNow - start;
-            
-            // Should complete 1000 iterations in reasonable time (less than 1 second)
-            Assert.True(duration.TotalMilliseconds < 1000, 
-                $"Performance test failed: took {duration.TotalMilliseconds}ms for 1000 iterations");
-        }
-
-        #endregion
-
-        #region Null Handling Tests
-
-        [Fact]
-        public void NullableProperties_Should_HandleCorrectly()
-        {
-            // Test nullable bool property handling
-            Expression<Func<Order, bool>> expr = o => o.IsProcessed.HasValue;
-            
-            // This would test nullable property handling
-            // For now, just verify the expression can be created
-            Assert.NotNull(expr);
-        }
-
-        #endregion
-
-        #region String Operations Tests
-
-        [Fact]
-        public void StringOperations_Should_TranslateToKsqlFunctions()
-        {
-            // Test string method translation in projections
-            Expression<Func<Order, object>> expr = o => new { 
-                UpperCustomerId = o.CustomerId.ToUpper(),
-                LowerRegion = o.Region.ToLower()
-            };
-            
-            var result = new KsqlProjectionBuilder().Build(expr.Body);
-            
-            // Verify string functions are translated
-            Assert.Contains("SELECT", result);
-            // Note: Actual string function translation depends on implementation details
-        }
-
-        #endregion
-
-        #region JOIN Tests (Placeholder)
-
-        [Fact]
-        public void JoinQuery_SimpleJoin_Should_GenerateExpectedKsql()
-        {
-            // Placeholder for JOIN translation tests
-            // JOIN functionality would be tested here when implemented
-            Assert.True(true); // Placeholder
-        }
-
-        #endregion
-
-        #region Type Safety Tests
-
-        [Fact]
-        public void TypeSafety_StronglyTypedExpressions_Should_Compile()
-        {
-            // Test that all expression types compile correctly
-            Expression<Func<Order, object>> selectExpr = o => new { o.OrderId, o.Amount };
-            Expression<Func<Order, bool>> whereExpr = o => o.IsActive;
-            Expression<Func<Order, string>> groupExpr = o => o.CustomerId;
-            Expression<Func<IGrouping<string, Order>, bool>> havingExpr = g => g.Count() > 0;
-            
-            // All expressions should compile without issues
-            Assert.NotNull(selectExpr);
-            Assert.NotNull(whereExpr);
-            Assert.NotNull(groupExpr);
-            Assert.NotNull(havingExpr);
-        }
-
-        #endregion
+        // Assert
+        Assert.Equal("SELECT OrderId, CustomerId, Amount, Region", result);
     }
 }

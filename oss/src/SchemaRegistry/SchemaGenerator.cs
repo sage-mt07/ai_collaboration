@@ -434,7 +434,7 @@ public static class SchemaGenerator
     }
 
     /// <summary>
-    /// Validates that the generated schema is valid Avro
+    /// Validates that the generated schema is valid Avro (FIXED VERSION)
     /// </summary>
     /// <param name="schema">The schema JSON to validate</param>
     /// <returns>True if valid, false otherwise</returns>
@@ -445,10 +445,47 @@ public static class SchemaGenerator
 
         try
         {
-            var avroSchema = JsonSerializer.Deserialize<AvroSchema>(schema);
-            return avroSchema != null && 
-                   !string.IsNullOrEmpty(avroSchema.Type) && 
-                   !string.IsNullOrEmpty(avroSchema.Name);
+            // Try to parse as JSON first
+            using var document = JsonDocument.Parse(schema);
+            var root = document.RootElement;
+
+            // For Avro record schemas, check basic structure
+            if (root.ValueKind == JsonValueKind.Object)
+            {
+                // Must have "type" property
+                if (!root.TryGetProperty("type", out var typeElement))
+                    return false;
+
+                var typeValue = typeElement.GetString();
+                
+                // For record types, must have "name" property
+                if (typeValue == "record")
+                {
+                    if (!root.TryGetProperty("name", out var nameElement))
+                        return false;
+                    
+                    var nameValue = nameElement.GetString();
+                    if (string.IsNullOrEmpty(nameValue))
+                        return false;
+                }
+
+                return true;
+            }
+
+            // For primitive schemas (like "string", "int"), just check if it's a valid string
+            if (root.ValueKind == JsonValueKind.String)
+            {
+                var primitiveType = root.GetString();
+                return !string.IsNullOrEmpty(primitiveType);
+            }
+
+            // For union types (arrays), validate each element
+            if (root.ValueKind == JsonValueKind.Array)
+            {
+                return root.GetArrayLength() > 0;
+            }
+
+            return false;
         }
         catch (JsonException)
         {

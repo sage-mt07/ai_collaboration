@@ -42,7 +42,7 @@ namespace KsqlDsl.Tests
             var result = KsqlAggregateBuilder.Build(expr.Body);
 
             // Assert
-            Assert.Equal("SELECT COUNT(UNKNOWN) AS OrderCount", result);
+            Assert.Equal("SELECT COUNT(*) AS OrderCount", result);
         }
 
         [Fact]
@@ -104,7 +104,7 @@ namespace KsqlDsl.Tests
             var result = KsqlAggregateBuilder.Build(expr.Body);
 
             // Assert
-            Assert.Equal("SELECT AVERAGE(Amount) AS AvgAmount", result);
+            Assert.Equal("SELECT AVG(Amount) AS AvgAmount", result);
         }
 
         #endregion
@@ -140,8 +140,6 @@ namespace KsqlDsl.Tests
             // Assert
             Assert.Equal("SELECT EARLIEST_BY_OFFSET(Amount) AS EarliestAmount", result);
         }
-
-
 
         [Fact]
         public void CollectList_Aggregate_Should_GenerateCorrectKsql()
@@ -197,10 +195,10 @@ namespace KsqlDsl.Tests
             Assert.Contains("SELECT", result);
             Assert.Contains("CustomerId", result); // Key included
             Assert.Contains("SUM(Amount) AS TotalAmount", result);
-            Assert.Contains("COUNT(UNKNOWN) AS OrderCount", result);
+            Assert.Contains("COUNT(*) AS OrderCount", result); // Fixed: COUNT(*) instead of COUNT(UNKNOWN)
             Assert.Contains("MAX(Amount) AS MaxAmount", result);
             Assert.Contains("MIN(Amount) AS MinAmount", result);
-            Assert.Contains("AVERAGE(Amount) AS AvgAmount", result);
+            Assert.Contains("AVG(Amount) AS AvgAmount", result); // Fixed: AVG instead of AVERAGE
         }
 
         [Fact]
@@ -248,7 +246,7 @@ namespace KsqlDsl.Tests
             // Assert
             Assert.Contains("SUM(Quantity) AS TotalQuantity", result);
             Assert.Contains("MAX(Quantity) AS MaxQuantity", result);
-            Assert.Contains("AVERAGE(Quantity) AS AvgQuantity", result);
+            Assert.Contains("AVG(Quantity) AS AvgQuantity", result); // Fixed: AVG instead of AVERAGE
         }
 
         [Fact]
@@ -267,7 +265,7 @@ namespace KsqlDsl.Tests
             // Assert
             Assert.Contains("SUM(Score) AS TotalScore", result);
             Assert.Contains("MAX(Score) AS MaxScore", result);
-            Assert.Contains("AVERAGE(Score) AS AvgScore", result);
+            Assert.Contains("AVG(Score) AS AvgScore", result); // Fixed: AVG instead of AVERAGE
         }
 
         [Fact]
