@@ -1,37 +1,54 @@
 # KafkaContext OSS
 
+## 設計ポリシー（2025-06-14修正版）
+
+### 【POCO属性で一意定義、Fluent APIの物理名上書きは禁止】
+
+- POCOクラス属性（例：[Topic(...)]) で物理トピック・パーティション等を一意に指定すること。
+  - 例：
+  ```csharp
+  [Topic("trade-events", PartitionCount = 3)]
+  public class TradeEvent
+  {
+      [Key]
+      public long TradeId { get; set; }
+      [MaxLength(12)]
+      public string Symbol { get; set; }
+      // ...他プロパティ
+  }
+  ```
+- POCO\:Topic=1:1のマッピングをライブラリ側で強制。
+- Fluent APIでのトピック名や物理名の上書き（WithKafkaTopic等）は禁止。
+- modelBuilderはPOCOを宣言するだけ（属性による設定を利用）。
+- プロパティの型・バリデーション・デフォルト値もPOCO属性で記述。
+  - 例：[MaxLength(12)] [DefaultValue(0)] [Key] など。
+
 ## 1. 概要
 
-本OSSは、EntityFramework（EF）流の記述体験でKafka/ksqlDB/ストリームデータを型安全・LINQで操作可能にするC#ライブラリです。 DbContext流API・POCOモデル・Fluent API・LINQ・リアルタイム購読までカバーします。
-
----
+本OSSは、EntityFramework（EF）流の記述体験でKafka/ksqlDB/ストリームデータを型安全・LINQで操作可能にするC#ライブラリです。 POCO属性主導で「型・物理マッピング・制約」が一元管理され、実装・運用・テストの一貫性を担保します。
 
 ## 2. 主要クラス/I/F一覧（RDB対比）
 
-| 用途         | EntityFramework       | 本OSS（Kafka/ksqlDB）     | 備考             |
-| ---------- | --------------------- | ---------------------- | -------------- |
-| 管理本体       | DbContext             | KafkaContext           |                |
-| エンティティ     | DbSet                 | EventSet               | 型で区別           |
-| FluentAPI  | Entity                | Event                  | modelBuilder.〜 |
-| クエリ記述      | LINQ                  | LINQ                   | どちらも共通         |
-| 追加         | Add/AddAsync          | AddAsync               | Kafka Produce  |
-| 取得         | ToList/FirstOrDefault | ToList/FirstOrDefault  |                |
-| 購読         | (なし)                  | Subscribe/ForEachAsync | Push型体験        |
-| SQL/KSQL出力 | ToSql                 | ToKsql                 | デバッグ/説明用       |
-
----
+| 用途         | EntityFramework       | 本OSS（Kafka/ksqlDB）     | 備考                       |
+| ---------- | --------------------- | ---------------------- | ------------------------ |
+| 管理本体       | DbContext             | KafkaContext           |                          |
+| エンティティ     | DbSet                 | EventSet               | 型で区別                     |
+| FluentAPI  | Entity                | Event                  | modelBuilder.〜（POCO列挙のみ） |
+| クエリ記述      | LINQ                  | LINQ                   | どちらも共通                   |
+| 追加         | Add/AddAsync          | AddAsync               | Kafka Produce            |
+| 取得         | ToList/FirstOrDefault | ToList/FirstOrDefault  |                          |
+| 購読         | (なし)                  | Subscribe/ForEachAsync | Push型体験                  |
+| SQL/KSQL出力 | ToSql                 | ToKsql                 | デバッグ/説明用                 |
 
 ## 3. 主な protected override（RDB流との対応）
 
 | メソッド名             | 本OSSでの役割                         | 必要性・備考 |
 | ----------------- | -------------------------------- | ------ |
-| OnModelCreating   | POCO/FluentでKafkaストリーム/スキーマ定義    | 必須     |
+| OnModelCreating   | POCOをmodelBuilderで宣言             | 必須     |
 | OnConfiguring     | Kafka/ksqlDB/Schema Registry接続設定 | 必須     |
 | Dispose           | Producer/Consumerリソース解放          | 必須     |
 | SaveChanges/Async | Kafka流では即時送信なので通常不要（拡張可）         | 要件次第   |
 | EnsureCreated     | ストリーム/テーブル/スキーマ自動作成              | 任意     |
-
----
 
 ## 4. サンプルコード（利用イメージ・POCO属性主導版）
 
@@ -66,8 +83,6 @@ var list = db.TradeEvents.Where(e => e.Amount > 1000).ToList();
 db.TradeEvents.Subscribe(e => Console.WriteLine(e));
 Console.WriteLine(db.TradeEvents.Where(e => e.Amount > 1000).ToKsql());
 ```
-
----
 
 ## 5. テスト観点サンプル
 
@@ -105,3 +120,20 @@ Console.WriteLine(db.TradeEvents.Where(e => e.Amount > 1000).ToKsql());
 - 属性で物理トピック等を一意定義することで型安全・運用一貫性・拡張性を実現
 
 ---
+
+### POCOプロパティのnull許容について
+
+- `int?`や`decimal?`、`string?`のように**C#標準のnullable型**を使うことで、そのままKafka/Avroでもnull許容フィールドとなります。
+
+- `[IsRequired]`等の「必須指定」属性は本OSSでは用意しません。
+
+- **必須値としたい場合は、非null型（例：**``**、**``**、**``**）で定義してください**。
+
+- Kafka/ksqlDB/Avroのスキーマ設計もC#型定義に追従します。
+
+- DbContext/DbSetと並列運用可、現場混乱なし
+
+- Kafka/ksqlDB知識ゼロでも、EF流でそのまま使える命名・API設計
+
+- 属性で物理トピック等を一意定義することで型安全・運用一貫性・拡張性を実現
+
