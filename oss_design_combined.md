@@ -550,3 +550,51 @@ Kafka インフラ未構築でも開発可能：先に LINQ や POCO を定義�
 
 学習コスト低減：Kafka 環境のセットアップを待たずに、DSL定義の学習・試行錯誤が可能。。
 
+
+## 11. Kafkaのcommit/DB commit・障害時の動作（DBエンジニア必読）
+
+Kafkaのコンシューマアプリでは「オフセットcommit」と「DBのトランザクションcommit」は同じではありません。 特にDBエンジニア・テックリード層に多い勘違いとして、\*\*障害発生時には「前回commitしたオフセット」から“再度メッセージが流れてくる”\*\*という動作を理解しておく必要があります。
+
+### サンプル：障害発生時の「重複実行」イメージ
+
+```csharp
+foreach (var msg in consumer.Consume())
+{
+    // 1. DBに書き込む
+    db.Save(msg.Value); // 例：OrdersテーブルにINSERT
+
+    // 2. Kafkaにオフセットcommit（"ここまで処理済み"を通知）
+    consumer.Commit(msg);
+}
+```
+
+#### ▼このときの「状態」例
+
+| 処理        | DB     | Kafkaオフセット | 備考                       |
+| --------- | ------ | ---------- | ------------------------ |
+| 初回実行      | 書き込み済み | commit済み   | 1回だけでOK                  |
+| commit前障害 | 書き込み済み | commit前    | **再起動後、同じmsgを再実行（DB重複）** |
+| commit後障害 | 書き込み済み | commit済み   | 以降は次のmsgから処理             |
+
+#### 【冪等化例：重複反映を防ぐパターン】
+
+```csharp
+foreach (var msg in consumer.Consume())
+{
+    if (!db.Exists(msg.Key))
+    {
+        db.Save(msg.Value);
+    }
+    consumer.Commit(msg);
+}
+```
+
+- こうすることで、**再実行されてもDBは一意に保たれる**（冪等性担保）
+
+### 解説
+
+- Kafkaのcommitは「オフセット管理」でありDBのcommitとは意味が違う
+- commit前の副作用は何度も再実行される前提で設計する
+- 特にDB系テックリードは「一意反映」と誤認しやすいので**冪等設計必須**
+- こうした違いを理解せずに設計すると「二重反映」「消えたデータ」問題に直結
+
