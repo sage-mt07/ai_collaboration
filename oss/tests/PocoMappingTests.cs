@@ -40,5 +40,16 @@ namespace KsqlDsl.Tests
 
             Assert.Equal("mapped-topic", topicName);
         }
+
+        [Fact]
+        public void KeyAttribute_Should_Map_ToPartitionKey()
+        {
+            using var context = new MappingKafkaContext();
+
+            var entityModel = context.MappedEntities.GetEntityModel();
+
+            Assert.Single(entityModel.KeyProperties);
+            Assert.Equal(nameof(MappedEntity.Id), entityModel.KeyProperties[0].Name);
+        }
     }
 }
