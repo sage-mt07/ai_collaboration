@@ -123,114 +123,20 @@ internal class KafkaProducerService : IDisposable
         var config = BuildProducerConfig();
         var builder = new ProducerBuilder<object, object>(config);
 
-        // 基本機能確認後、Avroシリアライザーを段階的に実装予定
-        if (_schemaRegistryClient != null && _options.EnableAutoSchemaRegistration)
-        {
-            if (_options.EnableDebugLogging)
-            {
-                Console.WriteLine($"[DEBUG] Schema registry available for {entityType.Name}, Avro support deferred");
-            }
+        // 修正理由：スキーマ登録処理を削除
+        // ModelBuilder.BuildAsync()で事前に登録済みという前提に変更
+        // これにより、Producer初期化が高速化され、責任分離が明確になる
 
-            // 将来的にスキーマ自動登録を実装
-            Task.Run(async () =>
-            {
-                try
-                {
-                    await RegisterEntitySchemasAsync<T>(entityModel);
-                }
-                catch (Exception schemaEx)
-                {
-                    if (_options.EnableDebugLogging)
-                    {
-                        Console.WriteLine($"[DEBUG] Schema registration error for {entityType.Name}: {schemaEx.Message}");
-                    }
-                }
-            });
+        if (_options.EnableDebugLogging)
+        {
+            var topicName = entityModel.TopicAttribute?.TopicName ?? entityModel.EntityType.Name;
+            Console.WriteLine($"[DEBUG] Creating producer for {entityType.Name} → Topic: {topicName}");
         }
 
         var producer = builder.Build();
         _producers[entityType] = producer;
 
         return producer;
-    }
-
-    /// <summary>
-    /// エンティティ用のスキーマを自動登録（将来実装）
-    /// </summary>
-    private async Task RegisterEntitySchemasAsync<T>(EntityModel entityModel)
-    {
-        if (_schemaRegistryClient == null) return;
-
-        var topicName = entityModel.TopicAttribute?.TopicName ?? entityModel.EntityType.Name;
-        var entityType = typeof(T);
-
-        try
-        {
-            // 基本的なスキーマ生成（将来的にAvro対応予定）
-            var keySchema = "\"string\""; // デフォルトキー
-            var valueSchema = GenerateBasicSchema<T>();
-
-            // Schema Registryに登録
-            var (keySchemaId, valueSchemaId) = await _schemaRegistryClient.RegisterTopicSchemasAsync(
-                topicName, keySchema, valueSchema);
-
-            if (_options.EnableDebugLogging)
-            {
-                Console.WriteLine($"[DEBUG] Basic schemas registered for {entityType.Name} → Topic: {topicName}");
-                Console.WriteLine($"[DEBUG] Key Schema ID: {keySchemaId}, Value Schema ID: {valueSchemaId}");
-            }
-        }
-        catch (Exception ex)
-        {
-            if (_options.EnableDebugLogging)
-            {
-                Console.WriteLine($"[DEBUG] Schema registration failed for {entityType.Name}: {ex.Message}");
-            }
-            // スキーマ登録失敗はProducer生成を止めない
-        }
-    }
-
-    /// <summary>
-    /// 基本的なスキーマ生成（簡易版）
-    /// </summary>
-    private string GenerateBasicSchema<T>()
-    {
-        var entityType = typeof(T);
-        var properties = entityType.GetProperties();
-
-        // 簡易JSON Schema形式
-        var schema = new
-        {
-            type = "record",
-            name = entityType.Name,
-            @namespace = "KsqlDsl.Generated",
-            fields = properties.Select(p => new
-            {
-                name = p.Name,
-                type = MapToBasicType(p.PropertyType)
-            }).ToArray()
-        };
-
-        return System.Text.Json.JsonSerializer.Serialize(schema);
-    }
-
-    private string MapToBasicType(Type type)
-    {
-        var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
-
-        return underlyingType switch
-        {
-            Type t when t == typeof(string) => "string",
-            Type t when t == typeof(int) => "int",
-            Type t when t == typeof(long) => "long",
-            Type t when t == typeof(bool) => "boolean",
-            Type t when t == typeof(float) => "float",
-            Type t when t == typeof(double) => "double",
-            Type t when t == typeof(decimal) => "double",
-            Type t when t == typeof(DateTime) => "string",
-            Type t when t == typeof(Guid) => "string",
-            _ => "string"
-        };
     }
 
     private ProducerConfig BuildProducerConfig()

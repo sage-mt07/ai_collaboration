@@ -67,7 +67,7 @@ namespace KsqlDsl.Tests
         {
             // Arrange
             using var context = new TimeoutTestContext();
-            var timeoutMs = 5000; // 5 seconds
+            var timeout = TimeSpan.FromSeconds(5); // 5 seconds - 修正：TimeSpanを使用
             var receivedCount = 0;
 
             // Act & Assert
@@ -79,7 +79,7 @@ namespace KsqlDsl.Tests
                 {
                     receivedCount++;
                     await Task.Delay(1);
-                }, timeoutMs, cts.Token);
+                }, timeout, cts.Token); // 修正：TimeSpanを正しく渡す
             }
             catch (Exception ex)
             {
@@ -98,7 +98,7 @@ namespace KsqlDsl.Tests
 
             // Act & Assert
             await Assert.ThrowsAsync<ArgumentNullException>(async () =>
-                await context.TimeoutEvents.ForEachAsync(null!, 30000));
+                await context.TimeoutEvents.ForEachAsync(null!, TimeSpan.FromSeconds(30))); // 修正：TimeSpanを使用
         }
 
         [Fact]
@@ -106,7 +106,7 @@ namespace KsqlDsl.Tests
         {
             // Arrange
             using var context = new TimeoutTestContext();
-            var customTimeoutMs = 15000; // 15 seconds
+            var customTimeout = TimeSpan.FromSeconds(15); // 15 seconds - 修正：TimeSpanを使用
 
             // Act & Assert
             using var cts = new CancellationTokenSource(50); // 50ms
@@ -115,7 +115,7 @@ namespace KsqlDsl.Tests
             {
                 await context.TimeoutEvents.ForEachAsync(
                     async item => await Task.Delay(1),
-                    customTimeoutMs,
+                    customTimeout, // 修正：TimeSpanを正しく渡す
                     cts.Token);
             }
             catch (Exception ex)
@@ -135,7 +135,7 @@ namespace KsqlDsl.Tests
             // デフォルトタイムアウト版のメソッドが存在することを確認
             var defaultMethod = eventSetType.GetMethod("ForEachAsync", new[] {
                 typeof(Func<TimeoutTestEvent, Task>),
-                typeof(int),
+                typeof(TimeSpan), // 修正：TimeSpanを確認
                 typeof(CancellationToken)
             });
 
@@ -144,11 +144,11 @@ namespace KsqlDsl.Tests
 
             // パラメータがオプションであることを確認
             var parameters = defaultMethod.GetParameters();
-            Assert.True(parameters[1].HasDefaultValue); // timeoutMs parameter
+            Assert.True(parameters[1].HasDefaultValue); // timeout parameter
             Assert.True(parameters[2].HasDefaultValue); // cancellationToken parameter
 
             // デフォルト値を確認
-            Assert.Equal(int.MaxValue, parameters[1].DefaultValue);
+            Assert.Equal(default(TimeSpan), parameters[1].DefaultValue); // 修正：TimeSpan.Zeroではなくdefault(TimeSpan)
         }
 
         [Fact]
@@ -157,14 +157,14 @@ namespace KsqlDsl.Tests
             // Arrange
             using var context = new TimeoutTestContext();
 
-            // Act & Assert - int.MaxValueを使った場合
+            // Act & Assert - default(TimeSpan)を使った場合
             using var cts = new CancellationTokenSource(50); // 50ms
 
             try
             {
                 await context.TimeoutEvents.ForEachAsync(
                     async item => await Task.Delay(1),
-                    int.MaxValue, // 無制限
+                    default(TimeSpan), // 無制限 - 修正：default(TimeSpan)を使用
                     cts.Token);
             }
             catch (Exception ex)
@@ -172,7 +172,7 @@ namespace KsqlDsl.Tests
                 // CancellationTokenによるキャンセルは予想される
                 Assert.True(ex is OperationCanceledException ||
                            ex is InvalidOperationException,
-                    "int.MaxValue timeout should not cause TimeoutException");
+                    "default(TimeSpan) timeout should not cause TimeoutException");
             }
         }
     }

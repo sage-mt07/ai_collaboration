@@ -18,6 +18,7 @@ public class ModelBuilder
     private readonly Dictionary<Type, EntityModel> _entityModels = new();
     private readonly ValidationService _validationService;
     private AvroSchemaRegistrationService? _schemaRegistrationService;
+    private bool _isBuilt = false;
 
     public ModelBuilder(ValidationMode validationMode = ValidationMode.Strict)
     {
@@ -122,8 +123,18 @@ public class ModelBuilder
         return string.Join(Environment.NewLine, summary);
     }
 
+    /// <summary>
+    /// 非同期でモデル構築とスキーマ登録を実行
+    /// 修正理由：スキーマ登録の責任をModelBuilderに集約し、確実に実行
+    /// </summary>
     public async Task BuildAsync()
     {
+        if (_isBuilt)
+        {
+            // 既に構築済みの場合はスキップ
+            return;
+        }
+
         var validationResult = ValidateAllEntities();
 
         if (!validationResult.IsValid)
@@ -136,24 +147,57 @@ public class ModelBuilder
         if (validationResult.Warnings.Count > 0 || validationResult.AutoCompletedSettings.Count > 0)
             ValidationService.PrintValidationResult(validationResult);
 
+        // 修正理由：スキーマ登録を確実に実行し、詳細ログ出力
         if (_schemaRegistrationService != null)
         {
             try
             {
+                Console.WriteLine("[INFO] Avroスキーマ登録を開始します...");
                 await _schemaRegistrationService.RegisterAllSchemasAsync(_entityModels);
+
+                Console.WriteLine($"[INFO] スキーマ登録完了: {_entityModels.Count}エンティティが正常に登録されました");
+
+                // 登録済みスキーマの一覧表示（デバッグ用）
+                var registeredSchemas = await _schemaRegistrationService.GetRegisteredSchemasAsync();
+                if (registeredSchemas.Count > 0)
+                {
+                    Console.WriteLine($"[INFO] 登録済みスキーマ: {string.Join(", ", registeredSchemas)}");
+                }
             }
             catch (Exception ex)
             {
+                var errorMessage = $"Avroスキーマ自動登録に失敗しました: {ex.Message}";
+
                 if (_validationService.GetValidationMode() == ValidationMode.Strict)
-                    throw new InvalidOperationException($"Avroスキーマ自動登録に失敗しました: {ex.Message}", ex);
+                {
+                    throw new InvalidOperationException(errorMessage, ex);
+                }
                 else
-                    Console.WriteLine($"[WARNING] Avroスキーマ登録に失敗しましたが、続行します: {ex.Message}");
+                {
+                    Console.WriteLine($"[WARNING] {errorMessage} (Relaxedモードのため続行します)");
+                }
             }
         }
+        else
+        {
+            Console.WriteLine("[INFO] スキーマ登録サービスが無効化されています (EnableAutoSchemaRegistration=false)");
+        }
+
+        _isBuilt = true;
     }
 
+    /// <summary>
+    /// 同期でモデル構築を実行（スキーマ登録はスキップ）
+    /// 修正理由：同期版では警告を表示し、BuildAsync()の使用を推奨
+    /// </summary>
     public void Build()
     {
+        if (_isBuilt)
+        {
+            // 既に構築済みの場合はスキップ
+            return;
+        }
+
         var validationResult = ValidateAllEntities();
 
         if (!validationResult.IsValid)
@@ -167,7 +211,12 @@ public class ModelBuilder
             ValidationService.PrintValidationResult(validationResult);
 
         if (_schemaRegistrationService != null)
-            Console.WriteLine("[INFO] Avroスキーマ登録は非同期で実行されます。BuildAsync()を使用することを推奨します。");
+        {
+            Console.WriteLine("[WARNING] Avroスキーマ登録は非同期処理のため、Build()ではスキップされます。");
+            Console.WriteLine("[WARNING] 確実なスキーマ登録のため、BuildAsync()またはEnsureCreatedAsync()の使用を推奨します。");
+        }
+
+        _isBuilt = true;
     }
 
     public async Task<List<string>> GetRegisteredSchemasAsync()
@@ -193,6 +242,11 @@ public class ModelBuilder
 
         return await _schemaRegistrationService.CheckSchemaCompatibilityAsync($"{topicName}-value", valueSchema);
     }
+
+    /// <summary>
+    /// モデル構築状態を確認
+    /// </summary>
+    public bool IsBuilt => _isBuilt;
 
     private void ValidateRequiredProperties<T>(Type entityType, ValidationResult validationResult) where T : class
     {

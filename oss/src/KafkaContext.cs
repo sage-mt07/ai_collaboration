@@ -45,18 +45,6 @@ public abstract class KafkaContext : IDisposable, IAsyncDisposable
 
             OnModelCreating(modelBuilder);
 
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await modelBuilder.BuildAsync();
-                }
-                catch (Exception ex)
-                {
-                    if (Options.EnableDebugLogging)
-                        Console.WriteLine($"[ERROR] Avroスキーマ自動登録エラー: {ex.Message}");
-                }
-            });
 
             modelBuilder.Build();
             return modelBuilder;
@@ -88,18 +76,6 @@ public abstract class KafkaContext : IDisposable, IAsyncDisposable
 
             OnModelCreating(modelBuilder);
 
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await modelBuilder.BuildAsync();
-                }
-                catch (Exception ex)
-                {
-                    if (Options.EnableDebugLogging)
-                        Console.WriteLine($"[ERROR] Avroスキーマ自動登録エラー: {ex.Message}");
-                }
-            });
 
             modelBuilder.Build();
             return modelBuilder;
