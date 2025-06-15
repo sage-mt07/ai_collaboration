@@ -1,17 +1,23 @@
-﻿
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>KsqlDsl</RootNamespace>
+    <!-- ✅ Nullable Reference Types を有効化 -->
+    <Nullable>enable</Nullable>
+    <!-- ✅ 警告をエラーとして扱う (開発時品質向上) -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- ✅ Nullable警告は警告のまま (段階的移行のため) -->
+    <WarningsNotAsErrors>CS8600;CS8601;CS8602;CS8603;CS8618;CS8619;CS8620;CS8625</WarningsNotAsErrors>
   </PropertyGroup>
+  
   <ItemGroup>
-  <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
-    <_Parameter1>KsqlDsl.Tests</_Parameter1>
-  </AssemblyAttribute>
-</ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>KsqlDsl.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+  
   <ItemGroup>
     <PackageReference Include="Confluent.SchemaRegistry" Version="2.3.0" />
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
-
 </Project>

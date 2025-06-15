@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 
 namespace KsqlDsl.Options;
 
-
 /// <summary>
 /// KafkaContext設定オプション
 /// EntityFramework風のオプション設定システム
@@ -92,6 +91,9 @@ public class KafkaContextOptions
     /// <returns>設定概要</returns>
     public override string ToString()
     {
-        return $"KafkaContext Options: Kafka={ConnectionString}, SchemaRegistry={SchemaRegistryUrl}, Validation={ValidationMode}, ConsumerGroup={ConsumerGroupId}";
+        var connectionString = ConnectionString ?? "未設定";
+        var schemaRegistry = SchemaRegistryUrl ?? "未設定";
+        var consumerGroup = ConsumerGroupId ?? "未設定";
+        return $"KafkaContext Options: Kafka={connectionString}, SchemaRegistry={schemaRegistry}, Validation={ValidationMode}, ConsumerGroup={consumerGroup}";
     }
 }

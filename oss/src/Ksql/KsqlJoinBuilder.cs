@@ -1,4 +1,3 @@
-
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -23,7 +22,7 @@ internal class KsqlJoinBuilder
         var innerKeys = ExtractJoinKeys(innerKeySelector?.Body);
         var projections = ExtractProjection(resultSelector?.Body);
 
-        var conditions = new System.Text.StringBuilder();
+        var conditions = new StringBuilder();
         for (int i = 0; i < outerKeys.Count; i++)
         {
             if (i > 0) conditions.Append(" AND ");
@@ -46,8 +45,7 @@ internal class KsqlJoinBuilder
         return $"SELECT {string.Join(", ", projections)} FROM {outerType} {outerAlias} JOIN {innerType} {innerAlias} ON {conditions}";
     }
 
-
-    private MethodCallExpression FindJoinCall(Expression expr)
+    private MethodCallExpression? FindJoinCall(Expression expr)
     {
         if (expr is MethodCallExpression mce && mce.Method.Name == "Join")
             return mce;
@@ -85,9 +83,13 @@ internal class KsqlJoinBuilder
         return null;
     }
 
-    private List<string> ExtractJoinKeys(Expression expr)
+    private List<string> ExtractJoinKeys(Expression? expr)
     {
         var keys = new List<string>();
+
+        if (expr == null)
+            return keys;
+
         if (expr is NewExpression newExpr)
         {
             foreach (var arg in newExpr.Arguments)
@@ -102,7 +104,8 @@ internal class KsqlJoinBuilder
         }
         return keys;
     }
-    private static LambdaExpression ExtractLambdaExpression(Expression expr)
+
+    private static LambdaExpression? ExtractLambdaExpression(Expression expr)
     {
         return expr switch
         {
@@ -112,7 +115,7 @@ internal class KsqlJoinBuilder
         };
     }
 
-    private static MemberExpression ExtractMemberExpression(Expression expr)
+    private static MemberExpression? ExtractMemberExpression(Expression expr)
     {
         return expr switch
         {
@@ -121,16 +124,21 @@ internal class KsqlJoinBuilder
             _ => null
         };
     }
-    private List<string> ExtractProjection(Expression expr)
+
+    private List<string> ExtractProjection(Expression? expr)
     {
         var props = new List<string>();
+
+        if (expr == null)
+            return props;
+
         if (expr is NewExpression newExpr)
         {
             foreach (var arg in newExpr.Arguments)
             {
                 if (arg is MemberExpression memberExpr)
                 {
-                    string alias = null;
+                    string? alias = null;
                     if (memberExpr.Expression is ParameterExpression pe)
                     {
                         alias = pe.Name;
@@ -146,5 +154,4 @@ internal class KsqlJoinBuilder
         }
         return props;
     }
-
 }

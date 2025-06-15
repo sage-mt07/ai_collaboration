@@ -21,6 +21,7 @@ public class TopicOverrideService
     /// </summary>
     /// <typeparam name="T">対象エンティティタイプ</typeparam>
     /// <param name="overrideConfig">上書き設定</param>
+    /// <exception cref="ArgumentNullException">上書き設定がnullの場合</exception>
     public void OverrideTopicOption<T>(TopicOverride overrideConfig)
     {
         if (overrideConfig == null)
@@ -72,6 +73,7 @@ public class TopicOverrideService
     /// </summary>
     /// <param name="entityType">対象エンティティタイプ</param>
     /// <returns>マージされたトピック設定</returns>
+    /// <exception cref="ArgumentNullException">エンティティタイプがnullの場合</exception>
     public MergedTopicConfig GetMergedTopicConfig(Type entityType)
     {
         if (entityType == null)

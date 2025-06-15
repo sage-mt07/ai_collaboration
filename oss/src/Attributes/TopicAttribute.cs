@@ -9,7 +9,7 @@ namespace KsqlDsl.Attributes;
 /// POCO属性主導型KafkaContext用のTopic属性
 /// 物理トピック名・各種パラメータをPOCOに一意定義するための属性
 /// </summary>
-    [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
 public class TopicAttribute : Attribute
 {
     /// <summary>
@@ -62,6 +62,7 @@ public class TopicAttribute : Attribute
     /// 初期化
     /// </summary>
     /// <param name="topicName">物理トピック名（必須）</param>
+    /// <exception cref="ArgumentException">トピック名がnullまたは空の場合</exception>
     public TopicAttribute(string topicName)
     {
         if (string.IsNullOrWhiteSpace(topicName))

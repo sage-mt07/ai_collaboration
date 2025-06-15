@@ -6,6 +6,9 @@ using System.Threading.Tasks;
 
 namespace KsqlDsl.Validation;
 
+/// <summary>
+/// POCO属性主導型KafkaContextのバリデーション結果
+/// </summary>
 public class ValidationResult
 {
     /// <summary>

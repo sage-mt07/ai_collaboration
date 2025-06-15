@@ -43,7 +43,7 @@ internal static class KsqlAggregateBuilder
             };
         }
 
-        public override Expression Visit(Expression node)
+        public override Expression? Visit(Expression? node)
         {
             if (node is NewExpression newExpr)
             {
@@ -63,7 +63,7 @@ internal static class KsqlAggregateBuilder
                     if (arg is MethodCallExpression m)
                     {
                         var methodName = m.Method.Name.ToUpper();
-                        
+
                         // Transform specific method names
                         methodName = TransformMethodName(methodName);
 

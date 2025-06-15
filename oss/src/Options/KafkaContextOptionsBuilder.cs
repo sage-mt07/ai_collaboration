@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 
 namespace KsqlDsl.Options;
 
-
 /// <summary>
 /// KafkaContextオプションビルダー
 /// EntityFramework風のFluent API設定システム
@@ -22,6 +21,7 @@ public class KafkaContextOptionsBuilder
     /// </summary>
     /// <param name="connectionString">Kafkaブローカー接続文字列（例: "localhost:9092"）</param>
     /// <returns>ビルダーインスタンス</returns>
+    /// <exception cref="ArgumentException">接続文字列がnullまたは空の場合</exception>
     public KafkaContextOptionsBuilder UseKafka(string connectionString)
     {
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -36,6 +36,7 @@ public class KafkaContextOptionsBuilder
     /// </summary>
     /// <param name="schemaRegistryUrl">Schema Registry接続URL（例: "http://localhost:8081"）</param>
     /// <returns>ビルダーインスタンス</returns>
+    /// <exception cref="ArgumentException">URLがnullまたは空の場合</exception>
     public KafkaContextOptionsBuilder UseSchemaRegistry(string schemaRegistryUrl)
     {
         if (string.IsNullOrWhiteSpace(schemaRegistryUrl))
@@ -73,8 +74,12 @@ public class KafkaContextOptionsBuilder
     /// <typeparam name="T">対象エンティティタイプ</typeparam>
     /// <param name="overrideConfig">上書き設定</param>
     /// <returns>ビルダーインスタンス</returns>
+    /// <exception cref="ArgumentNullException">上書き設定がnullの場合</exception>
     public KafkaContextOptionsBuilder OverrideTopicOption<T>(TopicOverride overrideConfig)
     {
+        if (overrideConfig == null)
+            throw new ArgumentNullException(nameof(overrideConfig));
+
         _options.TopicOverrideService.OverrideTopicOption<T>(overrideConfig);
         return this;
     }
@@ -99,6 +104,7 @@ public class KafkaContextOptionsBuilder
     /// </summary>
     /// <param name="groupId">コンシューマーグループID</param>
     /// <returns>ビルダーインスタンス</returns>
+    /// <exception cref="ArgumentException">グループIDがnullまたは空の場合</exception>
     public KafkaContextOptionsBuilder UseConsumerGroup(string groupId)
     {
         if (string.IsNullOrWhiteSpace(groupId))
@@ -114,10 +120,14 @@ public class KafkaContextOptionsBuilder
     /// <param name="key">設定キー</param>
     /// <param name="value">設定値</param>
     /// <returns>ビルダーインスタンス</returns>
+    /// <exception cref="ArgumentException">設定キーがnullまたは空の場合</exception>
+    /// <exception cref="ArgumentNullException">設定値がnullの場合</exception>
     public KafkaContextOptionsBuilder ConfigureProducer(string key, object value)
     {
         if (string.IsNullOrWhiteSpace(key))
             throw new ArgumentException("設定キーは必須です", nameof(key));
+        if (value == null)
+            throw new ArgumentNullException(nameof(value));
 
         _options.ProducerConfig[key] = value;
         return this;
@@ -129,10 +139,14 @@ public class KafkaContextOptionsBuilder
     /// <param name="key">設定キー</param>
     /// <param name="value">設定値</param>
     /// <returns>ビルダーインスタンス</returns>
+    /// <exception cref="ArgumentException">設定キーがnullまたは空の場合</exception>
+    /// <exception cref="ArgumentNullException">設定値がnullの場合</exception>
     public KafkaContextOptionsBuilder ConfigureConsumer(string key, object value)
     {
         if (string.IsNullOrWhiteSpace(key))
             throw new ArgumentException("設定キーは必須です", nameof(key));
+        if (value == null)
+            throw new ArgumentNullException(nameof(value));
 
         _options.ConsumerConfig[key] = value;
         return this;
@@ -172,6 +186,7 @@ public class KafkaContextOptionsBuilder
     /// 設定済みオプションを取得
     /// </summary>
     /// <returns>KafkaContextオプション</returns>
+    /// <exception cref="InvalidOperationException">必須設定が不足している場合</exception>
     public KafkaContextOptions Build()
     {
         // 必須設定の検証

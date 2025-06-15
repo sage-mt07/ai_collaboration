@@ -22,6 +22,9 @@ internal class EventQueryProvider<T> : IQueryProvider where T : class
 
     public IQueryable CreateQuery(Expression expression)
     {
+        if (expression == null)
+            throw new ArgumentNullException(nameof(expression));
+
         var elementType = expression.Type.GetGenericArguments().FirstOrDefault() ?? typeof(object);
 
         var queryableType = typeof(EventSet<>).MakeGenericType(elementType);
@@ -30,6 +33,9 @@ internal class EventQueryProvider<T> : IQueryProvider where T : class
 
     public IQueryable<TElement> CreateQuery<TElement>(Expression expression)
     {
+        if (expression == null)
+            throw new ArgumentNullException(nameof(expression));
+
         if (typeof(TElement) != typeof(T))
         {
             throw new ArgumentException($"EventQueryProvider<{typeof(T).Name}>は{typeof(TElement).Name}タイプのクエリを作成できません。");
@@ -38,8 +44,11 @@ internal class EventQueryProvider<T> : IQueryProvider where T : class
         return (IQueryable<TElement>)new EventSet<T>(_context, _entityModel, expression);
     }
 
-    public object Execute(Expression expression)
+    public object? Execute(Expression expression)
     {
+        if (expression == null)
+            throw new ArgumentNullException(nameof(expression));
+
         // クエリ実行時の処理（ToList等）
         // TODO: 実際のKafka Consumer実装
         return new List<T>();
@@ -47,7 +56,10 @@ internal class EventQueryProvider<T> : IQueryProvider where T : class
 
     public TResult Execute<TResult>(Expression expression)
     {
+        if (expression == null)
+            throw new ArgumentNullException(nameof(expression));
+
         var result = Execute(expression);
-        return (TResult)result;
+        return (TResult)result!;
     }
 }
