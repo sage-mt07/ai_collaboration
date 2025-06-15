@@ -123,53 +123,62 @@ internal class KafkaProducerService : IDisposable
         var config = BuildProducerConfig();
         var builder = new ProducerBuilder<object, object>(config);
 
-        // 修正理由：Avroシリアライザーを正式実装
-        // KsqlDslはAvro専用設計のため、Schema Registryと連携したAvroシリアライザーを使用
+        // 修正理由：KsqlDslはAvro専用設計のため、Avro以外は使用しない
         if (_schemaRegistryClient != null)
         {
             try
             {
                 var topicName = entityModel.TopicAttribute?.TopicName ?? entityModel.EntityType.Name;
 
-                // AvroシリアライザーをSchema Registryクライアントと連携して設定
-                var keySchemaConfig = new Confluent.SchemaRegistry.AvroSerializerConfig();
-                var valueSchemaConfig = new Confluent.SchemaRegistry.AvroSerializerConfig();
+                // 修正：Confluent専用のSchemaRegistryClientを直接作成
+                var confluentSchemaRegistryConfig = new Confluent.SchemaRegistry.SchemaRegistryConfig
+                {
+                    Url = _options.SchemaRegistryUrl ?? "http://localhost:8081"
+                };
 
-                builder.SetKeySerializer(new Confluent.SchemaRegistry.Serdes.AvroSerializer<object>(
-                    (Confluent.SchemaRegistry.ISchemaRegistryClient)_schemaRegistryClient, keySchemaConfig))
-                       .SetValueSerializer(new Confluent.SchemaRegistry.Serdes.AvroSerializer<object>(
-                    (Confluent.SchemaRegistry.ISchemaRegistryClient)_schemaRegistryClient, valueSchemaConfig));
+                // Confluent AvroシリアライザーでSchema Registryクライアント作成
+                var confluentClient = new Confluent.SchemaRegistry.CachedSchemaRegistryClient(confluentSchemaRegistryConfig);
+
+                // 修正：Avro専用設計に従い、AvroSerializerのみを使用
+                builder.SetKeySerializer(new Confluent.SchemaRegistry.Serdes.AvroSerializer<object>(confluentClient))
+                       .SetValueSerializer(new Confluent.SchemaRegistry.Serdes.AvroSerializer<object>(confluentClient));
 
                 if (_options.EnableDebugLogging)
                 {
-                    Console.WriteLine($"[DEBUG] Avroシリアライザーを設定: {entityType.Name} → Topic: {topicName}");
+                    Console.WriteLine($"[DEBUG] Confluent Avroシリアライザーを設定: {entityType.Name} → Topic: {topicName}");
+                }
+
+                if (_options.EnableDebugLogging)
+                {
+                    Console.WriteLine($"[DEBUG] Confluent Avroシリアライザーを設定: {entityType.Name} → Topic: {topicName}");
                 }
             }
             catch (Exception ex)
             {
                 if (_options.EnableDebugLogging)
                 {
-                    Console.WriteLine($"[ERROR] Avroシリアライザー設定エラー: {ex.Message}");
+                    Console.WriteLine($"[ERROR] Confluent Avroシリアライザー設定エラー: {ex.Message}");
                 }
 
                 // Avroシリアライザー設定失敗時は例外を投げる（KsqlDslはAvro専用のため）
                 throw new KafkaProducerException(
-                    $"Failed to configure Avro serializers for {entityType.Name}. " +
-                    $"Ensure schema registry is available and schemas are registered: {ex.Message}", ex);
+                    $"Failed to configure Confluent Avro serializers for {entityType.Name}. " +
+                    $"KsqlDsl requires Avro serialization. Ensure Schema Registry is available and accessible: {ex.Message}", ex);
             }
         }
         else
         {
-            // Schema Registryが未設定の場合
-            // テスト環境では警告を出力してFallbackシリアライザーを使用
+            // Schema Registryが未設定の場合はエラー（KsqlDslはAvro専用のため）
             if (_options.EnableDebugLogging)
             {
-                Console.WriteLine($"[WARNING] Schema Registry未設定のため、テスト用Fallbackシリアライザーを使用");
+                Console.WriteLine($"[ERROR] Schema Registry未設定: KsqlDslはAvro専用設計のため、Schema Registryが必須です");
             }
 
-            // テスト環境用のFallbackシリアライザー
-            builder.SetKeySerializer(new Confluent.Kafka.Serializers.StringSerializer())
-                   .SetValueSerializer(new TestAvroFallbackSerializer<T>());
+            // KsqlDslはAvro専用設計のため、Schema Registry未設定時は例外をスロー
+            throw new KafkaProducerException(
+                $"Schema Registry configuration is required for {entityType.Name}. " +
+                $"KsqlDsl is designed exclusively for Avro serialization. " +
+                $"Please configure Schema Registry URL in KafkaContextOptions.");
         }
 
         if (_options.EnableDebugLogging)
@@ -183,6 +192,7 @@ internal class KafkaProducerService : IDisposable
 
         return producer;
     }
+
 
     private ProducerConfig BuildProducerConfig()
     {
