@@ -15,6 +15,8 @@ public abstract class KafkaContext : IDisposable, IAsyncDisposable
     private readonly Lazy<ModelBuilder> _modelBuilder;
     private readonly Dictionary<Type, object> _eventSets = new();
     private readonly Lazy<KafkaProducerService> _producerService;
+    // 修正理由：Phase 3-1でConsumerService追加
+    private readonly Lazy<KafkaConsumerService> _consumerService;
     private bool _disposed = false;
     private bool _modelBuilt = false;
 
@@ -35,6 +37,8 @@ public abstract class KafkaContext : IDisposable, IAsyncDisposable
         });
 
         _producerService = new Lazy<KafkaProducerService>(() => new KafkaProducerService(Options));
+        // 修正理由：Phase 3-1でConsumerService統合
+        _consumerService = new Lazy<KafkaConsumerService>(() => new KafkaConsumerService(Options));
 
         InitializeEventSets();
     }
@@ -52,6 +56,8 @@ public abstract class KafkaContext : IDisposable, IAsyncDisposable
         });
 
         _producerService = new Lazy<KafkaProducerService>(() => new KafkaProducerService(Options));
+        // 修正理由：Phase 3-1でConsumerService統合
+        _consumerService = new Lazy<KafkaConsumerService>(() => new KafkaConsumerService(Options));
 
         InitializeEventSets();
     }
@@ -65,6 +71,12 @@ public abstract class KafkaContext : IDisposable, IAsyncDisposable
     internal KafkaProducerService GetProducerService()
     {
         return _producerService.Value;
+    }
+
+    // 修正理由：CS0161エラー解決、Phase 3-1でConsumerService統合
+    internal KafkaConsumerService GetConsumerService()
+    {
+        return _consumerService.Value;
     }
 
     private void InitializeEventSets()
@@ -208,6 +220,12 @@ public abstract class KafkaContext : IDisposable, IAsyncDisposable
                 _producerService.Value.Dispose();
             }
 
+            // 修正理由：Phase 3-1でConsumerService追加のためDispose処理追加
+            if (_consumerService.IsValueCreated)
+            {
+                _consumerService.Value.Dispose();
+            }
+
             if (Options.EnableDebugLogging)
             {
                 Console.WriteLine("[DEBUG] KafkaContext.Dispose: リソース解放完了");
@@ -229,6 +247,12 @@ public abstract class KafkaContext : IDisposable, IAsyncDisposable
         if (_producerService.IsValueCreated)
         {
             _producerService.Value.Dispose();
+        }
+
+        // 修正理由：Phase 3-1でConsumerService追加のためDisposeAsync処理追加
+        if (_consumerService.IsValueCreated)
+        {
+            _consumerService.Value.Dispose();
         }
         await Task.Delay(1);
     }

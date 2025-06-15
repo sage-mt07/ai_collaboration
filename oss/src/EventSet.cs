@@ -108,21 +108,60 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T>
 
     public List<T> ToList()
     {
+        var topicName = _entityModel.TopicAttribute?.TopicName ?? _entityModel.EntityType.Name;
+        var ksqlQuery = ToKsql();
+
         if (_context.Options.EnableDebugLogging)
         {
-            var topicName = _entityModel.TopicAttribute?.TopicName ?? _entityModel.EntityType.Name;
-            var ksqlQuery = ToKsql();
             Console.WriteLine($"[DEBUG] EventSet.ToList: {typeof(T).Name} ← Topic: {topicName}");
             Console.WriteLine($"[DEBUG] Generated KSQL: {ksqlQuery}");
         }
 
-        return new List<T>();
+        // 修正理由：Phase 3-1でKafkaConsumerService統合、実際のConsumer実装に変更
+        var consumerService = _context.GetConsumerService();
+
+        try
+        {
+            return consumerService.Query<T>(ksqlQuery, _entityModel);
+        }
+        catch (Exception ex)
+        {
+            if (_context.Options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] Consumer query error: {ex.Message}");
+            }
+            // 修正理由：エラー時は空リストを返す（後でエラーハンドリング改善）
+            return new List<T>();
+        }
     }
 
     public async Task<List<T>> ToListAsync(CancellationToken cancellationToken = default)
     {
-        await Task.Delay(1, cancellationToken);
-        return ToList();
+        var topicName = _entityModel.TopicAttribute?.TopicName ?? _entityModel.EntityType.Name;
+        var ksqlQueryAsync = ToKsql(); // 修正理由：CS0136エラー回避のため変数名変更
+
+        if (_context.Options.EnableDebugLogging)
+        {
+            Console.WriteLine($"[DEBUG] EventSet.ToListAsync: {typeof(T).Name} ← Topic: {topicName}");
+            Console.WriteLine($"[DEBUG] Generated KSQL: {ksqlQueryAsync}");
+        }
+
+        // 修正理由：Phase 3-1でKafkaConsumerService統合、実際のConsumer実装に変更
+        var consumerService = _context.GetConsumerService();
+
+        try
+        {
+            return await consumerService.QueryAsync<T>(ksqlQueryAsync, _entityModel, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            if (_context.Options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] Consumer query error: {ex.Message}");
+            }
+            // 修正理由：エラー時は空リストを返す（後でエラーハンドリング改善）
+            return new List<T>();
+        }
     }
 
     public void Subscribe(Action<T> onNext, CancellationToken cancellationToken = default)
