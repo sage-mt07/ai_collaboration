@@ -4,9 +4,6 @@ using Confluent.SchemaRegistry.Serdes;
 using KsqlDsl.Modeling;
 using KsqlDsl.Options;
 using KsqlDsl.KsqlDb;
-// 修正理由：CS0104エラー回避のためエイリアス使用
-using ConfluentSchemaClient = Confluent.SchemaRegistry.ISchemaRegistryClient;
-using KsqlSchemaClient = KsqlDsl.SchemaRegistry.ISchemaRegistryClient;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -19,10 +16,8 @@ namespace KsqlDsl;
 internal class KafkaConsumerService : IDisposable
 {
     private readonly KafkaContextOptions _options;
-    // 修正理由：CS0019エラー回避のためKsqlSchemaClientエイリアス使用
-    private readonly KsqlSchemaClient? _schemaRegistryClient;
+    private readonly KsqlDsl.SchemaRegistry.ISchemaRegistryClient? _schemaRegistryClient;
     private readonly Dictionary<Type, IConsumer<object, object>> _consumers = new();
-    // 修正理由：Phase3-1でksqlDB REST API統合
     private readonly Lazy<KsqlDbRestApiClient> _ksqlDbClient;
     private bool _disposed = false;
 
@@ -30,7 +25,7 @@ internal class KafkaConsumerService : IDisposable
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
 
-        // 修正理由：ProducerServiceと同様のSchemaRegistry設定
+        // Schema Registry設定
         if (!string.IsNullOrEmpty(_options.SchemaRegistryUrl))
         {
             var schemaConfig = new KsqlDsl.SchemaRegistry.SchemaRegistryConfig
@@ -40,17 +35,16 @@ internal class KafkaConsumerService : IDisposable
             _schemaRegistryClient = new KsqlDsl.SchemaRegistry.Implementation.ConfluentSchemaRegistryClient(schemaConfig);
         }
 
-        // 修正理由：Phase3-1でksqlDB REST API統合（ConnectionStringをksqlDB URLとして使用）
+        // ksqlDB REST API統合
         _ksqlDbClient = new Lazy<KsqlDbRestApiClient>(() =>
         {
-            // ksqlDB URLが明示的に設定されていない場合、Kafka接続文字列から推測
             var ksqlDbUrl = DeriveKsqlDbUrl(_options.ConnectionString);
             return new KsqlDbRestApiClient(ksqlDbUrl);
         });
     }
 
     /// <summary>
-    /// KSQL クエリに基づいてデータを取得（Phase 3-1：Pull Query実装）
+    /// KSQL クエリに基づいてデータを取得（Pull Query実装）
     /// </summary>
     public async Task<List<T>> QueryAsync<T>(string ksqlQuery, EntityModel entityModel, CancellationToken cancellationToken = default)
     {
@@ -69,7 +63,6 @@ internal class KafkaConsumerService : IDisposable
 
         try
         {
-            // 修正理由：Phase3-1でksqlDB Pull Query実行に変更
             var ksqlResponse = await _ksqlDbClient.Value.ExecuteQueryAsync(ksqlQuery, cancellationToken);
 
             if (_options.EnableDebugLogging)
@@ -77,7 +70,6 @@ internal class KafkaConsumerService : IDisposable
                 Console.WriteLine($"[DEBUG] ksqlDB Response: {ksqlResponse.Rows.Count} rows received");
             }
 
-            // 修正理由：task_eventset.txt「デシリアライズ」に準拠したデータ変換実装
             var results = new List<T>();
             foreach (var row in ksqlResponse.Rows)
             {
@@ -95,8 +87,6 @@ internal class KafkaConsumerService : IDisposable
                     {
                         Console.WriteLine($"[DEBUG] Deserialization error for row: {deserializeEx.Message}");
                     }
-                    // 修正理由：設計ドキュメント「例外設計厳守」- デシリアライズエラーは警告レベル
-                    // 個別行エラーは全体を止めず、ログ出力のみ
                 }
             }
 
@@ -104,7 +94,6 @@ internal class KafkaConsumerService : IDisposable
         }
         catch (KsqlDbException ex)
         {
-            // 修正理由：task_eventset.txt「例外設計厳守」に準拠
             throw new KafkaConsumerException(
                 $"Failed to execute ksqlDB query on topic '{topicName}': {ex.Message}", ex);
         }
@@ -124,13 +113,81 @@ internal class KafkaConsumerService : IDisposable
     }
 
     /// <summary>
+    /// Push型ストリーミング購読（EventSet Subscribe系用）
+    /// </summary>
+    public async Task SubscribeStreamAsync<T>(
+        string ksqlQuery,
+        EntityModel entityModel,
+        Func<T, Task> onNext,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(ksqlQuery))
+            throw new ArgumentException("KSQL query cannot be null or empty", nameof(ksqlQuery));
+        if (entityModel == null)
+            throw new ArgumentNullException(nameof(entityModel));
+        if (onNext == null)
+            throw new ArgumentNullException(nameof(onNext));
+
+        var topicName = entityModel.TopicAttribute?.TopicName ?? entityModel.EntityType.Name;
+
+        if (_options.EnableDebugLogging)
+        {
+            Console.WriteLine($"[DEBUG] Consumer.SubscribeStreamAsync: {typeof(T).Name} ← Topic: {topicName}");
+            Console.WriteLine($"[DEBUG] Streaming KSQL Query: {ksqlQuery}");
+        }
+
+        try
+        {
+            await _ksqlDbClient.Value.ExecuteStreamingQueryAsync(
+                ksqlQuery,
+                async (row) =>
+                {
+                    try
+                    {
+                        var entity = DeserializeRowToEntity<T>(row, entityModel);
+                        if (entity != null)
+                        {
+                            await onNext(entity);
+                        }
+                    }
+                    catch (Exception deserializeEx)
+                    {
+                        if (_options.EnableDebugLogging)
+                        {
+                            Console.WriteLine($"[DEBUG] Stream deserialization error: {deserializeEx.Message}");
+                        }
+                    }
+                },
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            if (_options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] Streaming query cancelled for {typeof(T).Name}");
+            }
+            throw;
+        }
+        catch (KsqlDbException ex)
+        {
+            throw new KafkaConsumerException(
+                $"Failed to execute ksqlDB streaming query on topic '{topicName}': {ex.Message}", ex);
+        }
+        catch (Exception ex)
+        {
+            throw new KafkaConsumerException(
+                $"Unexpected error streaming from topic '{topicName}': {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
     /// ksqlDBレスポンス行をPOCOエンティティにデシリアライズ
     /// </summary>
     private T? DeserializeRowToEntity<T>(Dictionary<string, object> row, EntityModel entityModel)
     {
         try
         {
-            // 修正理由：Phase3-1基本実装、System.Text.Jsonを使用したシンプルなデシリアライズ
+            // JSON デシリアライズを使用（基本実装）
             var jsonString = JsonSerializer.Serialize(row);
 
             var options = new JsonSerializerOptions
@@ -153,27 +210,7 @@ internal class KafkaConsumerService : IDisposable
     }
 
     /// <summary>
-    /// Kafka接続文字列からksqlDB URLを推測
-    /// </summary>
-    private string DeriveKsqlDbUrl(string? kafkaConnectionString)
-    {
-        if (string.IsNullOrEmpty(kafkaConnectionString))
-        {
-            return "http://localhost:8088"; // デフォルトksqlDB URL
-        }
-
-        // 修正理由：task_eventset.txt設計に従い、localhost:9092 → localhost:8088変換
-        if (kafkaConnectionString.Contains("localhost:9092"))
-        {
-            return "http://localhost:8088";
-        }
-
-        // より複雑な推測ロジックは後で実装
-        return "http://localhost:8088";
-    }
-
-    /// <summary>
-    /// 従来のKafka Consumer購読機能（Push型ストリーム用）
+    /// 従来のKafka Consumer購読機能（将来拡張用）
     /// </summary>
     private IConsumer<object, object> GetOrCreateConsumer<T>(EntityModel entityModel)
     {
@@ -187,19 +224,37 @@ internal class KafkaConsumerService : IDisposable
         var config = BuildConsumerConfig();
         var builder = new ConsumerBuilder<object, object>(config);
 
-        // Phase 3-1: Avroデシリアライザーは後で実装
-        // 修正理由：Phase 3-2でAvro統合予定のため、一時的にスタブ
+        // 基本機能確認後、Avroデシリアライザーを段階的に実装予定
         if (_schemaRegistryClient != null && _options.EnableAutoSchemaRegistration)
         {
-            // TODO: Phase 3-2でAvroDeserializer実装
-            // builder.SetKeyDeserializer(new AvroDeserializer<object>(_schemaRegistryClient));
-            // builder.SetValueDeserializer(new AvroDeserializer<object>(_schemaRegistryClient));
+            if (_options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] Schema registry available for {entityType.Name}, Avro support deferred");
+            }
         }
 
         var consumer = builder.Build();
         _consumers[entityType] = consumer;
 
         return consumer;
+    }
+
+    /// <summary>
+    /// Kafka接続文字列からksqlDB URLを推測
+    /// </summary>
+    private string DeriveKsqlDbUrl(string? kafkaConnectionString)
+    {
+        if (string.IsNullOrEmpty(kafkaConnectionString))
+        {
+            return "http://localhost:8088";
+        }
+
+        if (kafkaConnectionString.Contains("localhost:9092"))
+        {
+            return "http://localhost:8088";
+        }
+
+        return "http://localhost:8088";
     }
 
     private ConsumerConfig BuildConsumerConfig()
@@ -213,7 +268,6 @@ internal class KafkaConsumerService : IDisposable
             EnablePartitionEof = false
         };
 
-        // 修正理由：ProducerServiceと同様の設定適用方法
         config.Set("fetch.wait.max.ms", "500");
         config.Set("fetch.min.bytes", "1");
 
@@ -254,7 +308,6 @@ internal class KafkaConsumerService : IDisposable
             _consumers.Clear();
             _schemaRegistryClient?.Dispose();
 
-            // 修正理由：Phase3-1でksqlDB REST APIクライアント追加
             if (_ksqlDbClient.IsValueCreated)
             {
                 _ksqlDbClient.Value.Dispose();

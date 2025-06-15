@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -109,7 +110,108 @@ internal class KsqlDbRestApiClient : IDisposable
             throw new KsqlDbException($"Failed to connect to ksqlDB: {ex.Message}", ex);
         }
     }
+    /// <summary>
+    /// KSQL Push Query（ストリーミング）を実行
+    /// 修正理由：task_eventset.txt「Push型でストリーム受信」に準拠
+    /// </summary>
+    public async Task ExecuteStreamingQueryAsync(
+        string ksqlQuery,
+        Func<Dictionary<string, object>, Task> onRow,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(ksqlQuery))
+            throw new ArgumentException("KSQL query cannot be null or empty", nameof(ksqlQuery));
+        if (onRow == null)
+            throw new ArgumentNullException(nameof(onRow));
 
+        // 修正理由：task_eventset.txt「実データ送受信」に準拠したPush Query設定
+        var requestBody = new KsqlQueryRequest
+        {
+            Ksql = ksqlQuery,
+            StreamsProperties = new Dictionary<string, object>
+            {
+                ["ksql.streams.auto.offset.reset"] = "latest", // ストリーミングは最新から
+                ["ksql.query.push.v2.enabled"] = true, // Push Query v2有効化
+                ["ksql.query.push.v2.continuation.tokens.enabled"] = true
+            }
+        };
+
+        var jsonContent = JsonSerializer.Serialize(requestBody, _jsonOptions);
+        var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/vnd.ksql.v1+json");
+
+        try
+        {
+            // 修正理由：ストリーミングはquery-streamエンドポイントを使用
+            var response = await _httpClient.PostAsync($"{_ksqlDbUrl}/query-stream", httpContent, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                throw new KsqlDbException($"ksqlDB streaming query failed: {response.StatusCode} - {errorContent}");
+            }
+
+            // 修正理由：ストリーミングレスポンスの連続処理
+            using var responseStream = await response.Content.ReadAsStreamAsync();
+            using var reader = new StreamReader(responseStream);
+
+            string[]? header = null;
+            string? line;
+
+            // 修正理由：task_eventset.txt「CancellationToken対応のGraceful Shutdown」
+            while ((line = await reader.ReadLineAsync()) != null && !cancellationToken.IsCancellationRequested)
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+
+                try
+                {
+                    var jsonDoc = JsonDocument.Parse(line);
+                    var root = jsonDoc.RootElement;
+
+                    if (root.TryGetProperty("header", out var headerElement))
+                    {
+                        // ヘッダー行の処理
+                        header = ParseHeader(headerElement);
+                    }
+                    else if (root.TryGetProperty("row", out var rowElement) && header != null)
+                    {
+                        // データ行の処理
+                        var row = ParseDataRow(rowElement, header);
+                        await onRow(row);
+                    }
+                    else if (root.TryGetProperty("finalMessage", out var finalMessage))
+                    {
+                        // ストリーミング終了メッセージ
+                        break;
+                    }
+                    else if (root.TryGetProperty("errorMessage", out var errorMessage))
+                    {
+                        // エラーメッセージ処理
+                        var errorText = errorMessage.TryGetProperty("message", out var msg) ? msg.GetString() : "Unknown error";
+                        throw new KsqlDbException($"ksqlDB streaming error: {errorText}");
+                    }
+                }
+                catch (JsonException jsonEx)
+                {
+                    // 修正理由：task_eventset.txt「DLQ・エラー時はロギング／通知」
+                    // 個別行の解析エラーはストリーム全体を止めず、ログ出力のみ
+                    Console.WriteLine($"[DEBUG] JSON parsing error in streaming response: {jsonEx.Message}");
+                    Console.WriteLine($"[DEBUG] Problematic line: {line}");
+                }
+            }
+
+            // 修正理由：キャンセレーション確認
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new KsqlDbException($"Failed to connect to ksqlDB for streaming: {ex.Message}", ex);
+        }
+        catch (TaskCanceledException ex)
+        {
+            // 修正理由：task_eventset.txt「Timeout等に応じてGraceful Shutdown」
+            throw new KsqlDbException($"Streaming query timeout: {ex.Message}", ex);
+        }
+    }
     private KsqlQueryResponse ParseQueryResponse(string responseContent)
     {
         try

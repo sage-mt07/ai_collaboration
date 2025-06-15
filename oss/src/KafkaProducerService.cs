@@ -3,10 +3,7 @@ using Confluent.SchemaRegistry;
 using Confluent.SchemaRegistry.Serdes;
 using KsqlDsl.Modeling;
 using KsqlDsl.Options;
-// 修正理由：名前空間競合回避のためエイリアス使用 (Phase2エラー CS0104対応)
-using AvroSerializer = Confluent.SchemaRegistry.Serdes.AvroSerializer<object>;
-using ConfluentSchemaClient = Confluent.SchemaRegistry.ISchemaRegistryClient;
-using KsqlSchemaClient = KsqlDsl.SchemaRegistry.ISchemaRegistryClient;
+using KsqlDsl.Attributes;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -19,8 +16,7 @@ namespace KsqlDsl;
 internal class KafkaProducerService : IDisposable
 {
     private readonly KafkaContextOptions _options;
-    // 修正理由：設計ドキュメントに従いKsqlDsl独自ISchemaRegistryClientを使用
-    private readonly KsqlSchemaClient? _schemaRegistryClient;
+    private readonly KsqlDsl.SchemaRegistry.ISchemaRegistryClient? _schemaRegistryClient;
     private readonly Dictionary<Type, IProducer<object, object>> _producers = new();
     private bool _disposed = false;
 
@@ -28,7 +24,7 @@ internal class KafkaProducerService : IDisposable
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
 
-        // 修正理由：KsqlDsl設計に従い、ConfluentSchemaRegistryClient実装を使用
+        // Schema Registry設定
         if (!string.IsNullOrEmpty(_options.SchemaRegistryUrl))
         {
             var schemaConfig = new KsqlDsl.SchemaRegistry.SchemaRegistryConfig
@@ -61,7 +57,6 @@ internal class KafkaProducerService : IDisposable
         }
         catch (ProduceException<object, object> ex)
         {
-            // 修正理由：task_eventset.txt「エラー・バリデーション不整合時は即例外」に準拠
             throw new KafkaProducerException(
                 $"Failed to send message to topic '{topicName}': {ex.Error.Reason}", ex);
         }
@@ -128,20 +123,114 @@ internal class KafkaProducerService : IDisposable
         var config = BuildProducerConfig();
         var builder = new ProducerBuilder<object, object>(config);
 
-        // 修正理由：task_eventset.txt「Avroスキーマ連携を実際に実装」に準拠  
+        // 基本機能確認後、Avroシリアライザーを段階的に実装予定
         if (_schemaRegistryClient != null && _options.EnableAutoSchemaRegistration)
         {
-            // 注意：Confluent.SchemaRegistry.Serdes.AvroSerializerを使用するため、
-            // ConfluentのISchemaRegistryClientが必要。実装クラス内で取得する必要がある
-            // 現在はスタブ実装として無効化
-            // builder.SetKeySerializer(new AvroSerializer<object>(_schemaRegistryClient));
-            // builder.SetValueSerializer(new AvroSerializer<object>(_schemaRegistryClient));
+            if (_options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] Schema registry available for {entityType.Name}, Avro support deferred");
+            }
+
+            // 将来的にスキーマ自動登録を実装
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await RegisterEntitySchemasAsync<T>(entityModel);
+                }
+                catch (Exception schemaEx)
+                {
+                    if (_options.EnableDebugLogging)
+                    {
+                        Console.WriteLine($"[DEBUG] Schema registration error for {entityType.Name}: {schemaEx.Message}");
+                    }
+                }
+            });
         }
 
         var producer = builder.Build();
         _producers[entityType] = producer;
 
         return producer;
+    }
+
+    /// <summary>
+    /// エンティティ用のスキーマを自動登録（将来実装）
+    /// </summary>
+    private async Task RegisterEntitySchemasAsync<T>(EntityModel entityModel)
+    {
+        if (_schemaRegistryClient == null) return;
+
+        var topicName = entityModel.TopicAttribute?.TopicName ?? entityModel.EntityType.Name;
+        var entityType = typeof(T);
+
+        try
+        {
+            // 基本的なスキーマ生成（将来的にAvro対応予定）
+            var keySchema = "\"string\""; // デフォルトキー
+            var valueSchema = GenerateBasicSchema<T>();
+
+            // Schema Registryに登録
+            var (keySchemaId, valueSchemaId) = await _schemaRegistryClient.RegisterTopicSchemasAsync(
+                topicName, keySchema, valueSchema);
+
+            if (_options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] Basic schemas registered for {entityType.Name} → Topic: {topicName}");
+                Console.WriteLine($"[DEBUG] Key Schema ID: {keySchemaId}, Value Schema ID: {valueSchemaId}");
+            }
+        }
+        catch (Exception ex)
+        {
+            if (_options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] Schema registration failed for {entityType.Name}: {ex.Message}");
+            }
+            // スキーマ登録失敗はProducer生成を止めない
+        }
+    }
+
+    /// <summary>
+    /// 基本的なスキーマ生成（簡易版）
+    /// </summary>
+    private string GenerateBasicSchema<T>()
+    {
+        var entityType = typeof(T);
+        var properties = entityType.GetProperties();
+
+        // 簡易JSON Schema形式
+        var schema = new
+        {
+            type = "record",
+            name = entityType.Name,
+            @namespace = "KsqlDsl.Generated",
+            fields = properties.Select(p => new
+            {
+                name = p.Name,
+                type = MapToBasicType(p.PropertyType)
+            }).ToArray()
+        };
+
+        return System.Text.Json.JsonSerializer.Serialize(schema);
+    }
+
+    private string MapToBasicType(Type type)
+    {
+        var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
+
+        return underlyingType switch
+        {
+            Type t when t == typeof(string) => "string",
+            Type t when t == typeof(int) => "int",
+            Type t when t == typeof(long) => "long",
+            Type t when t == typeof(bool) => "boolean",
+            Type t when t == typeof(float) => "float",
+            Type t when t == typeof(double) => "double",
+            Type t when t == typeof(decimal) => "double",
+            Type t when t == typeof(DateTime) => "string",
+            Type t when t == typeof(Guid) => "string",
+            _ => "string"
+        };
     }
 
     private ProducerConfig BuildProducerConfig()
@@ -154,9 +243,10 @@ internal class KafkaProducerService : IDisposable
             MaxInFlight = 1,
             CompressionType = CompressionType.Snappy
         };
-        // 修正理由：Retriesプロパティが存在しないため、Set()メソッドで低レベル設定
+
         config.Set("retries", "3");
         config.Set("retry.backoff.ms", "100");
+
         foreach (var kvp in _options.ProducerConfig)
         {
             config.Set(kvp.Key, kvp.Value?.ToString() ?? "");
@@ -189,7 +279,7 @@ internal class KafkaProducerService : IDisposable
             return keyProperty.GetValue(entity);
         }
 
-        // 修正理由：複合キー対応（設計ドキュメント要件）
+        // 複合キー対応
         var keyObject = new Dictionary<string, object?>();
         foreach (var keyProperty in entityModel.KeyProperties)
         {

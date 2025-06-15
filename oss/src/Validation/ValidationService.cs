@@ -145,6 +145,15 @@ public class ValidationService
             }
         }
     }
+    /// <summary>
+    /// 現在のバリデーションモードを取得
+    /// 修正理由：ModelBuilderでのスキーマ突合バリデーション用（CS1061エラー対応）
+    /// </summary>
+    /// <returns>現在のバリデーションモード</returns>
+    public ValidationMode GetValidationMode()
+    {
+        return _mode;
+    }
 
     /// <summary>
     /// プロパティ属性のバリデーション
