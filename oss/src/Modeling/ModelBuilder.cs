@@ -1,39 +1,34 @@
 ﻿using Ksql.EntityFrameworkCore.Modeling;
 using KsqlDsl.Attributes;
 using KsqlDsl.Validation;
-// 修正理由：CS1061エラー対応、必要なusing文追加
 using KsqlDsl.SchemaRegistry;
+using KsqlDsl.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
-// 修正理由：NullabilityInfoContext使用のため追加
 using System.Diagnostics.CodeAnalysis;
+
 namespace KsqlDsl.Modeling;
 
-/// <summary>
-/// POCO属性主導型KafkaContextのモデルビルダー
-/// EntityFramework風のモデル定義API
-/// </summary>
 public class ModelBuilder
 {
     private readonly Dictionary<Type, EntityModel> _entityModels = new();
     private readonly ValidationService _validationService;
+    private AvroSchemaRegistrationService? _schemaRegistrationService;
 
-    /// <summary>
-    /// 初期化
-    /// </summary>
-    /// <param name="validationMode">バリデーションモード</param>
     public ModelBuilder(ValidationMode validationMode = ValidationMode.Strict)
     {
         _validationService = new ValidationService(validationMode);
     }
-    /// <summary>
-    /// エンティティをKafkaイベントとして登録（スキーマ突合機能強化版）
-    /// 修正理由：task_eventset.txt「OnModelCreatingでEntityModel／POCO→Avroスキーマを必ず突合・未定義属性は例外 or 警告」
-    /// </summary>
+
+    public void SetSchemaRegistrationService(AvroSchemaRegistrationService? schemaRegistrationService)
+    {
+        _schemaRegistrationService = schemaRegistrationService;
+    }
+
     public EntityModelBuilder<T> Event<T>() where T : class
     {
         var entityType = typeof(T);
@@ -43,12 +38,10 @@ public class ModelBuilder
             throw new InvalidOperationException($"エンティティ {entityType.Name} は既に登録済みです。同じエンティティの重複登録はできません。");
         }
 
-        // POCO属性情報を取得
         var topicAttribute = entityType.GetCustomAttribute<TopicAttribute>();
         var allProperties = entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
         var keyProperties = Array.FindAll(allProperties, p => p.GetCustomAttribute<KeyAttribute>() != null);
 
-        // キープロパティを順序でソート
         Array.Sort(keyProperties, (p1, p2) =>
         {
             var order1 = p1.GetCustomAttribute<KeyAttribute>()?.Order ?? 0;
@@ -56,14 +49,8 @@ public class ModelBuilder
             return order1.CompareTo(order2);
         });
 
-        // バリデーション実行
         var validationResult = _validationService.ValidateEntity(entityType);
 
-        // 修正理由：段階的実装のため、スキーマ突合機能は一時無効化
-        // 基本機能が動作確認後、段階的に有効化予定
-        // PerformSchemaValidation<T>(entityType, validationResult);
-
-        // エンティティモデルを作成・登録
         var entityModel = new EntityModel
         {
             EntityType = entityType,
@@ -78,75 +65,140 @@ public class ModelBuilder
         return new EntityModelBuilder<T>(entityModel);
     }
 
-    /// <summary>
-    /// POCO→Avroスキーマ突合バリデーション
-    /// 修正理由：task_eventset.txt「POCO→Avroスキーマを必ず突合・未定義属性は例外 or 警告」
-    /// </summary>
-    private void PerformSchemaValidation<T>(Type entityType, ValidationResult validationResult) where T : class
+    public Dictionary<Type, EntityModel> GetEntityModels()
     {
-        try
-        {
-            // Avroスキーマ生成テスト
-            var generatedSchema = SchemaRegistry.SchemaGenerator.GenerateSchema<T>();
+        return new Dictionary<Type, EntityModel>(_entityModels);
+    }
 
-            // スキーマ有効性検証
-            if (!SchemaRegistry.SchemaGenerator.ValidateSchema(generatedSchema))
+    public EntityModel? GetEntityModel(Type entityType)
+    {
+        return _entityModels.TryGetValue(entityType, out var model) ? model : null;
+    }
+
+    public EntityModel? GetEntityModel<T>() where T : class
+    {
+        return GetEntityModel(typeof(T));
+    }
+
+    public ValidationResult ValidateAllEntities()
+    {
+        var overallResult = new ValidationResult { IsValid = true };
+
+        foreach (var entityModel in _entityModels.Values)
+        {
+            if (entityModel.ValidationResult == null) continue;
+
+            if (!entityModel.ValidationResult.IsValid)
+            {
+                overallResult.IsValid = false;
+            }
+
+            overallResult.Errors.AddRange(entityModel.ValidationResult.Errors);
+            overallResult.Warnings.AddRange(entityModel.ValidationResult.Warnings);
+            overallResult.AutoCompletedSettings.AddRange(entityModel.ValidationResult.AutoCompletedSettings);
+        }
+
+        return overallResult;
+    }
+
+    public string GetModelSummary()
+    {
+        if (_entityModels.Count == 0)
+            return "登録済みエンティティ: なし";
+
+        var summary = new List<string> { $"登録済みエンティティ: {_entityModels.Count}件" };
+
+        foreach (var entityModel in _entityModels.Values)
+        {
+            var entityName = entityModel.EntityType.Name;
+            var topicName = entityModel.TopicAttribute?.TopicName ?? $"{entityName} (自動生成)";
+            var keyCount = entityModel.KeyProperties.Length;
+            var propCount = entityModel.AllProperties.Length;
+            var validStatus = entityModel.IsValid ? "✅" : "❌";
+
+            summary.Add($"  {validStatus} {entityName} → Topic: {topicName}, Keys: {keyCount}, Props: {propCount}");
+        }
+
+        return string.Join(Environment.NewLine, summary);
+    }
+
+    public async Task BuildAsync()
+    {
+        var validationResult = ValidateAllEntities();
+
+        if (!validationResult.IsValid)
+        {
+            var errorMessage = "モデル構築に失敗しました。以下のエラーを解決してください:" + Environment.NewLine;
+            errorMessage += string.Join(Environment.NewLine, validationResult.Errors);
+            throw new InvalidOperationException(errorMessage);
+        }
+
+        if (validationResult.Warnings.Count > 0 || validationResult.AutoCompletedSettings.Count > 0)
+            ValidationService.PrintValidationResult(validationResult);
+
+        if (_schemaRegistrationService != null)
+        {
+            try
+            {
+                await _schemaRegistrationService.RegisterAllSchemasAsync(_entityModels);
+            }
+            catch (Exception ex)
             {
                 if (_validationService.GetValidationMode() == ValidationMode.Strict)
-                {
-                    validationResult.IsValid = false;
-                    validationResult.Errors.Add($"{entityType.Name}の生成されたAvroスキーマが無効です。");
-                }
+                    throw new InvalidOperationException($"Avroスキーマ自動登録に失敗しました: {ex.Message}", ex);
                 else
-                {
-                    validationResult.Warnings.Add($"{entityType.Name}の生成されたAvroスキーマが無効ですが、続行します（Relaxedモード）。");
-                }
-            }
-
-            // スキーマ生成統計取得
-            var stats = SchemaRegistry.SchemaGenerator.GetGenerationStats(entityType);
-
-            if (stats.IgnoredProperties > 0)
-            {
-                var ignoredList = string.Join(", ", stats.IgnoredPropertyNames);
-                validationResult.Warnings.Add($"{entityType.Name}で{stats.IgnoredProperties}個のプロパティが[KafkaIgnore]により除外されました: {ignoredList}");
-            }
-
-            // 修正理由：task_eventset.txt「未定義属性は例外 or 警告」
-            ValidateRequiredProperties<T>(entityType, validationResult);
-
-            // 修正理由：task_eventset.txt「スキーマ互換チェック」
-            ValidateSchemaCompatibility<T>(entityType, validationResult);
-
-            if (validationResult.IsValid)
-            {
-                validationResult.AutoCompletedSettings.Add($"Avroスキーマ生成成功: {entityType.Name} ({stats.IncludedProperties}個のプロパティ)");
-            }
-        }
-        catch (Exception schemaEx)
-        {
-            if (_validationService.GetValidationMode() == ValidationMode.Strict)
-            {
-                validationResult.IsValid = false;
-                validationResult.Errors.Add($"{entityType.Name}のスキーマ突合に失敗しました: {schemaEx.Message}");
-            }
-            else
-            {
-                validationResult.Warnings.Add($"{entityType.Name}のスキーマ突合に失敗しましたが、続行します（Relaxedモード）: {schemaEx.Message}");
+                    Console.WriteLine($"[WARNING] Avroスキーマ登録に失敗しましたが、続行します: {ex.Message}");
             }
         }
     }
 
-    /// <summary>
-    /// 必須属性の検証
-    /// 修正理由：task_eventset.txt「未定義属性は例外 or 警告」
-    /// </summary>
+    public void Build()
+    {
+        var validationResult = ValidateAllEntities();
+
+        if (!validationResult.IsValid)
+        {
+            var errorMessage = "モデル構築に失敗しました。以下のエラーを解決してください:" + Environment.NewLine;
+            errorMessage += string.Join(Environment.NewLine, validationResult.Errors);
+            throw new InvalidOperationException(errorMessage);
+        }
+
+        if (validationResult.Warnings.Count > 0 || validationResult.AutoCompletedSettings.Count > 0)
+            ValidationService.PrintValidationResult(validationResult);
+
+        if (_schemaRegistrationService != null)
+            Console.WriteLine("[INFO] Avroスキーマ登録は非同期で実行されます。BuildAsync()を使用することを推奨します。");
+    }
+
+    public async Task<List<string>> GetRegisteredSchemasAsync()
+    {
+        if (_schemaRegistrationService == null)
+            return new List<string>();
+        return await _schemaRegistrationService.GetRegisteredSchemasAsync();
+    }
+
+    public async Task<bool> CheckEntitySchemaCompatibilityAsync<T>() where T : class
+    {
+        if (_schemaRegistrationService == null)
+            return false;
+
+        var entityType = typeof(T);
+        var entityModel = GetEntityModel<T>();
+
+        if (entityModel == null)
+            return false;
+
+        var topicName = entityModel.TopicAttribute?.TopicName ?? entityType.Name;
+        var valueSchema = SchemaGenerator.GenerateSchema(entityType);
+
+        return await _schemaRegistrationService.CheckSchemaCompatibilityAsync($"{topicName}-value", valueSchema);
+    }
+
     private void ValidateRequiredProperties<T>(Type entityType, ValidationResult validationResult) where T : class
     {
         var properties = entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
 
-        // シリアライズ対象プロパティの確認
-        var schemaProperties = SchemaRegistry.SchemaGenerator.GetGenerationStats(entityType);
+        var schemaProperties = SchemaGenerator.GetGenerationStats(entityType);
 
         if (schemaProperties.IncludedProperties == 0)
         {
@@ -161,16 +213,13 @@ public class ModelBuilder
             }
         }
 
-        // Nullable Reference Typesとの整合性チェック
         foreach (var property in properties)
         {
             if (property.GetCustomAttribute<KsqlDsl.Modeling.KafkaIgnoreAttribute>() != null)
                 continue;
 
-            // Nullableプロパティの妥当性確認
             if (IsNullableProperty(property))
             {
-                // Nullable型なのにデフォルト値がある場合の警告
                 var defaultValueAttr = property.GetCustomAttribute<DefaultValueAttribute>();
                 if (defaultValueAttr?.Value != null)
                 {
@@ -180,19 +229,13 @@ public class ModelBuilder
         }
     }
 
-    /// <summary>
-    /// スキーマ互換性チェック
-    /// 修正理由：task_eventset.txt「スキーマ互換チェック」
-    /// </summary>
     private void ValidateSchemaCompatibility<T>(Type entityType, ValidationResult validationResult) where T : class
     {
-        // 複合キーの場合の特別な検証
         var keyProperties = entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.GetCustomAttribute<KeyAttribute>() != null).ToArray();
 
         if (keyProperties.Length > 1)
         {
-            // 複合キーの場合、全てのキープロパティが同じ順序でシリアライザブルである必要がある
             foreach (var keyProperty in keyProperties)
             {
                 if (!IsSerializableType(keyProperty.PropertyType))
@@ -210,7 +253,6 @@ public class ModelBuilder
             }
         }
 
-        // 循環参照チェック
         if (HasCircularReference<T>())
         {
             if (_validationService.GetValidationMode() == ValidationMode.Strict)
@@ -225,22 +267,16 @@ public class ModelBuilder
         }
     }
 
-    /// <summary>
-    /// Nullable プロパティ判定
-    /// </summary>
     private bool IsNullableProperty(PropertyInfo property)
     {
         var propertyType = property.PropertyType;
 
-        // Nullable value types
         if (Nullable.GetUnderlyingType(propertyType) != null)
             return true;
 
-        // Value types are non-nullable by default
         if (propertyType.IsValueType)
             return false;
 
-        // Reference types - check nullable context
         try
         {
             var nullabilityContext = new NullabilityInfoContext();
@@ -250,13 +286,10 @@ public class ModelBuilder
         }
         catch
         {
-            return !propertyType.IsValueType; // Fallback
+            return !propertyType.IsValueType;
         }
     }
 
-    /// <summary>
-    /// シリアライズ可能型判定
-    /// </summary>
     private bool IsSerializableType(Type type)
     {
         var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
@@ -270,9 +303,6 @@ public class ModelBuilder
                underlyingType == typeof(byte[]);
     }
 
-    /// <summary>
-    /// 循環参照検出
-    /// </summary>
     private bool HasCircularReference<T>()
     {
         var visitedTypes = new HashSet<Type>();
@@ -307,107 +337,5 @@ public class ModelBuilder
         }
 
         return false;
-    }
-
-    /// <summary>
-    /// 登録済みエンティティモデル一覧を取得
-    /// </summary>
-    /// <returns>エンティティモデル辞書</returns>
-    public Dictionary<Type, EntityModel> GetEntityModels()
-    {
-        return new Dictionary<Type, EntityModel>(_entityModels);
-    }
-
-    /// <summary>
-    /// 指定タイプのエンティティモデルを取得
-    /// </summary>
-    /// <param name="entityType">エンティティタイプ</param>
-    /// <returns>エンティティモデル（未登録時はnull）</returns>
-    public EntityModel? GetEntityModel(Type entityType)
-    {
-        return _entityModels.TryGetValue(entityType, out var model) ? model : null;
-    }
-
-    /// <summary>
-    /// 指定タイプのエンティティモデルを取得（ジェネリック版）
-    /// </summary>
-    /// <typeparam name="T">エンティティタイプ</typeparam>
-    /// <returns>エンティティモデル（未登録時はnull）</returns>
-    public EntityModel? GetEntityModel<T>() where T : class
-    {
-        return GetEntityModel(typeof(T));
-    }
-
-    /// <summary>
-    /// 全エンティティのバリデーション結果をチェック
-    /// </summary>
-    /// <returns>全体バリデーション結果</returns>
-    public ValidationResult ValidateAllEntities()
-    {
-        var overallResult = new ValidationResult { IsValid = true };
-
-        foreach (var entityModel in _entityModels.Values)
-        {
-            if (entityModel.ValidationResult == null) continue;
-
-            if (!entityModel.ValidationResult.IsValid)
-            {
-                overallResult.IsValid = false;
-            }
-
-            overallResult.Errors.AddRange(entityModel.ValidationResult.Errors);
-            overallResult.Warnings.AddRange(entityModel.ValidationResult.Warnings);
-            overallResult.AutoCompletedSettings.AddRange(entityModel.ValidationResult.AutoCompletedSettings);
-        }
-
-        return overallResult;
-    }
-
-    /// <summary>
-    /// 登録済みエンティティの概要を取得
-    /// </summary>
-    /// <returns>概要文字列</returns>
-    public string GetModelSummary()
-    {
-        if (_entityModels.Count == 0)
-            return "登録済みエンティティ: なし";
-
-        var summary = new List<string> { $"登録済みエンティティ: {_entityModels.Count}件" };
-
-        foreach (var entityModel in _entityModels.Values)
-        {
-            var entityName = entityModel.EntityType.Name;
-            var topicName = entityModel.TopicAttribute?.TopicName ?? $"{entityName} (自動生成)";
-            var keyCount = entityModel.KeyProperties.Length;
-            var propCount = entityModel.AllProperties.Length;
-            var validStatus = entityModel.IsValid ? "✅" : "❌";
-
-            summary.Add($"  {validStatus} {entityName} → Topic: {topicName}, Keys: {keyCount}, Props: {propCount}");
-        }
-
-        return string.Join(Environment.NewLine, summary);
-    }
-
-    /// <summary>
-    /// モデル構築の完了処理
-    /// 全エンティティのバリデーションを実行し、問題があれば例外をスロー
-    /// </summary>
-    public void Build()
-    {
-        var validationResult = ValidateAllEntities();
-
-        if (!validationResult.IsValid)
-        {
-            var errorMessage = "モデル構築に失敗しました。以下のエラーを解決してください:" + Environment.NewLine;
-            errorMessage += string.Join(Environment.NewLine, validationResult.Errors);
-
-            throw new InvalidOperationException(errorMessage);
-        }
-
-        // 警告がある場合はコンソール出力
-        if (validationResult.Warnings.Count > 0 || validationResult.AutoCompletedSettings.Count > 0)
-        {
-            ValidationService.PrintValidationResult(validationResult);
-        }
     }
 }

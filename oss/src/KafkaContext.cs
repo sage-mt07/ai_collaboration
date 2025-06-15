@@ -1,5 +1,6 @@
 ﻿using KsqlDsl.Modeling;
 using KsqlDsl.Options;
+using KsqlDsl.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -15,8 +16,8 @@ public abstract class KafkaContext : IDisposable, IAsyncDisposable
     private readonly Lazy<ModelBuilder> _modelBuilder;
     private readonly Dictionary<Type, object> _eventSets = new();
     private readonly Lazy<KafkaProducerService> _producerService;
-    // 修正理由：Phase 3-1でConsumerService追加
     private readonly Lazy<KafkaConsumerService> _consumerService;
+    private AvroSchemaRegistrationService? _schemaRegistrationService;
     private bool _disposed = false;
     private bool _modelBuilt = false;
 
@@ -31,13 +32,37 @@ public abstract class KafkaContext : IDisposable, IAsyncDisposable
         _modelBuilder = new Lazy<ModelBuilder>(() =>
         {
             var modelBuilder = new ModelBuilder(Options.ValidationMode);
+
+            if (Options.EnableAutoSchemaRegistration)
+            {
+                _schemaRegistrationService = new AvroSchemaRegistrationService(
+                    Options.CustomSchemaRegistryClient,
+                    Options.ValidationMode,
+                    Options.EnableDebugLogging);
+
+                modelBuilder.SetSchemaRegistrationService(_schemaRegistrationService);
+            }
+
             OnModelCreating(modelBuilder);
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await modelBuilder.BuildAsync();
+                }
+                catch (Exception ex)
+                {
+                    if (Options.EnableDebugLogging)
+                        Console.WriteLine($"[ERROR] Avroスキーマ自動登録エラー: {ex.Message}");
+                }
+            });
+
             modelBuilder.Build();
             return modelBuilder;
         });
 
         _producerService = new Lazy<KafkaProducerService>(() => new KafkaProducerService(Options));
-        // 修正理由：Phase 3-1でConsumerService統合
         _consumerService = new Lazy<KafkaConsumerService>(() => new KafkaConsumerService(Options));
 
         InitializeEventSets();
@@ -50,34 +75,47 @@ public abstract class KafkaContext : IDisposable, IAsyncDisposable
         _modelBuilder = new Lazy<ModelBuilder>(() =>
         {
             var modelBuilder = new ModelBuilder(Options.ValidationMode);
+
+            if (Options.EnableAutoSchemaRegistration)
+            {
+                _schemaRegistrationService = new AvroSchemaRegistrationService(
+                    Options.CustomSchemaRegistryClient,
+                    Options.ValidationMode,
+                    Options.EnableDebugLogging);
+
+                modelBuilder.SetSchemaRegistrationService(_schemaRegistrationService);
+            }
+
             OnModelCreating(modelBuilder);
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await modelBuilder.BuildAsync();
+                }
+                catch (Exception ex)
+                {
+                    if (Options.EnableDebugLogging)
+                        Console.WriteLine($"[ERROR] Avroスキーマ自動登録エラー: {ex.Message}");
+                }
+            });
+
             modelBuilder.Build();
             return modelBuilder;
         });
 
         _producerService = new Lazy<KafkaProducerService>(() => new KafkaProducerService(Options));
-        // 修正理由：Phase 3-1でConsumerService統合
         _consumerService = new Lazy<KafkaConsumerService>(() => new KafkaConsumerService(Options));
 
         InitializeEventSets();
     }
 
     protected abstract void OnModelCreating(ModelBuilder modelBuilder);
+    protected virtual void OnConfiguring(KafkaContextOptionsBuilder optionsBuilder) { }
 
-    protected virtual void OnConfiguring(KafkaContextOptionsBuilder optionsBuilder)
-    {
-    }
-
-    internal KafkaProducerService GetProducerService()
-    {
-        return _producerService.Value;
-    }
-
-    // 修正理由：CS0161エラー解決、Phase 3-1でConsumerService統合
-    internal KafkaConsumerService GetConsumerService()
-    {
-        return _consumerService.Value;
-    }
+    internal KafkaProducerService GetProducerService() => _producerService.Value;
+    internal KafkaConsumerService GetConsumerService() => _consumerService.Value;
 
     private void InitializeEventSets()
     {
@@ -98,9 +136,7 @@ public abstract class KafkaContext : IDisposable, IAsyncDisposable
         var entityType = typeof(T);
 
         if (_eventSets.TryGetValue(entityType, out var existingSet))
-        {
             return (EventSet<T>)existingSet;
-        }
 
         var modelBuilder = _modelBuilder.Value;
         _modelBuilt = true;
@@ -115,7 +151,6 @@ public abstract class KafkaContext : IDisposable, IAsyncDisposable
 
         var eventSet = new EventSet<T>(this, entityModel);
         _eventSets[entityType] = eventSet;
-
         return eventSet;
     }
 
@@ -125,15 +160,8 @@ public abstract class KafkaContext : IDisposable, IAsyncDisposable
         return setMethod.Invoke(this, null)!;
     }
 
-    public ModelBuilder GetModelBuilder()
-    {
-        return _modelBuilder.Value;
-    }
-
-    public Dictionary<Type, EntityModel> GetEntityModels()
-    {
-        return _modelBuilder.Value.GetEntityModels();
-    }
+    public ModelBuilder GetModelBuilder() => _modelBuilder.Value;
+    public Dictionary<Type, EntityModel> GetEntityModels() => _modelBuilder.Value.GetEntityModels();
 
     public async Task EnsureCreatedAsync(CancellationToken cancellationToken = default)
     {
@@ -148,45 +176,48 @@ public abstract class KafkaContext : IDisposable, IAsyncDisposable
         await Task.Delay(1, cancellationToken);
 
         if (Options.EnableDebugLogging)
-        {
             Console.WriteLine("[DEBUG] KafkaContext.EnsureCreatedAsync: インフラストラクチャ作成完了");
-        }
     }
 
-    public void EnsureCreated()
-    {
-        EnsureCreatedAsync().GetAwaiter().GetResult();
-    }
+    public void EnsureCreated() => EnsureCreatedAsync().GetAwaiter().GetResult();
 
     public virtual async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         await Task.Delay(1, cancellationToken);
 
         if (Options.EnableDebugLogging)
-        {
             Console.WriteLine("[DEBUG] KafkaContext.SaveChangesAsync: Kafka流では通常不要（AddAsync時に即時送信）");
-        }
 
         return 0;
     }
 
-    public virtual int SaveChanges()
+    public virtual int SaveChanges() => SaveChangesAsync().GetAwaiter().GetResult();
+
+    public async Task<List<string>> GetRegisteredSchemasAsync()
     {
-        return SaveChangesAsync().GetAwaiter().GetResult();
+        var modelBuilder = _modelBuilder.Value;
+        return await modelBuilder.GetRegisteredSchemasAsync();
+    }
+
+    public async Task<bool> CheckEntitySchemaCompatibilityAsync<T>() where T : class
+    {
+        var modelBuilder = _modelBuilder.Value;
+        return await modelBuilder.CheckEntitySchemaCompatibilityAsync<T>();
     }
 
     public string GetDiagnostics()
     {
         var diagnostics = new List<string>
-            {
-                $"KafkaContext: {GetType().Name}",
-                $"Connection: {Options.ConnectionString}",
-                $"Schema Registry: {Options.SchemaRegistryUrl}",
-                $"Validation Mode: {Options.ValidationMode}",
-                $"Consumer Group: {Options.ConsumerGroupId}",
-                $"Model Built: {_modelBuilt}",
-                $"EventSets Count: {_eventSets.Count}"
-            };
+        {
+            $"KafkaContext: {GetType().Name}",
+            $"Connection: {Options.ConnectionString}",
+            $"Schema Registry: {Options.SchemaRegistryUrl}",
+            $"Validation Mode: {Options.ValidationMode}",
+            $"Consumer Group: {Options.ConsumerGroupId}",
+            $"Auto Schema Registration: {Options.EnableAutoSchemaRegistration}",
+            $"Model Built: {_modelBuilt}",
+            $"EventSets Count: {_eventSets.Count}"
+        };
 
         if (_modelBuilt)
         {
@@ -216,20 +247,13 @@ public abstract class KafkaContext : IDisposable, IAsyncDisposable
             _eventSets.Clear();
 
             if (_producerService.IsValueCreated)
-            {
                 _producerService.Value.Dispose();
-            }
 
-            // 修正理由：Phase 3-1でConsumerService追加のためDispose処理追加
             if (_consumerService.IsValueCreated)
-            {
                 _consumerService.Value.Dispose();
-            }
 
             if (Options.EnableDebugLogging)
-            {
                 Console.WriteLine("[DEBUG] KafkaContext.Dispose: リソース解放完了");
-            }
 
             _disposed = true;
         }
@@ -245,15 +269,11 @@ public abstract class KafkaContext : IDisposable, IAsyncDisposable
     protected virtual async ValueTask DisposeAsyncCore()
     {
         if (_producerService.IsValueCreated)
-        {
             _producerService.Value.Dispose();
-        }
 
-        // 修正理由：Phase 3-1でConsumerService追加のためDisposeAsync処理追加
         if (_consumerService.IsValueCreated)
-        {
             _consumerService.Value.Dispose();
-        }
+
         await Task.Delay(1);
     }
 

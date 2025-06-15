@@ -386,8 +386,10 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T>
             Console.WriteLine($"[DEBUG] EventSet.SubscribeAsync: {typeof(T).Name} ← Topic: {topicName} (非同期Push型購読開始)");
         }
     }
+    // oss/src/EventSet.cs の ForEachAsync メソッド部分の修正
 
-    public async Task ForEachAsync(Func<T, Task> action, CancellationToken cancellationToken = default)
+
+    public async Task ForEachAsync(Func<T, Task> action, int timeoutMs = int.MaxValue, CancellationToken cancellationToken = default)
     {
         if (action == null)
             throw new ArgumentNullException(nameof(action));
@@ -401,12 +403,24 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T>
         {
             Console.WriteLine($"[DEBUG] EventSet.ForEachAsync: {typeof(T).Name} ← Topic: {topicName} (Push型ストリーミング開始)");
             Console.WriteLine($"[DEBUG] Generated KSQL: {ksqlQuery}");
+            Console.WriteLine($"[DEBUG] Timeout: {timeoutMs}ms");
         }
 
         // 修正理由：バリデーション実行
         ValidateQueryBeforeExecution();
 
         var consumerService = _context.GetConsumerService();
+
+        // タイムアウト付きCancellationTokenを作成（int.MaxValueの場合は無制限）
+        CancellationTokenSource? timeoutCts = null;
+        CancellationToken effectiveToken = cancellationToken;
+
+        if (timeoutMs != int.MaxValue)
+        {
+            timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeoutMs);
+            effectiveToken = timeoutCts.Token;
+        }
 
         try
         {
@@ -416,12 +430,12 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T>
                 _entityModel,
                 async (item) =>
                 {
-                    if (cancellationToken.IsCancellationRequested)
+                    if (effectiveToken.IsCancellationRequested)
                         return;
 
                     await action(item);
                 },
-                cancellationToken);
+                effectiveToken);
 
             if (_context.Options.EnableDebugLogging)
             {
@@ -437,6 +451,14 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T>
 
             throw new InvalidOperationException(
                 $"Failed to stream from topic '{topicName}' for {typeof(T).Name}: {ex.Message}", ex);
+        }
+        catch (OperationCanceledException ex) when (timeoutCts?.Token.IsCancellationRequested == true && !cancellationToken.IsCancellationRequested)
+        {
+            if (_context.Options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] ForEachAsync streaming timeout after {timeoutMs}ms for {typeof(T).Name}");
+            }
+            throw new TimeoutException($"ForEachAsync operation timed out after {timeoutMs}ms", ex);
         }
         catch (OperationCanceledException)
         {
@@ -456,7 +478,12 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T>
             throw new InvalidOperationException(
                 $"Unexpected error streaming {typeof(T).Name} from topic '{topicName}': {ex.Message}", ex);
         }
+        finally
+        {
+            timeoutCts?.Dispose();
+        }
     }
+
 
     /// <summary>
     /// LINQ式をKSQLクエリに変換（フラグ制御版）
