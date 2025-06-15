@@ -253,6 +253,7 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T>
                 $"Unexpected error querying {typeof(T).Name} from topic '{topicName}': {ex.Message}", ex);
         }
     }
+
     /// <summary>
     /// クエリ実行前バリデーション
     /// 修正理由：Phase3-3でバリデーション強化
@@ -290,7 +291,6 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T>
         }
     }
 
-
     /// <summary>
     /// クエリ結果後処理バリデーション
     /// 修正理由：Phase3-3でバリデーション強化（型エラー修正）
@@ -318,7 +318,6 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T>
             }
         }
     }
-
 
     /// <summary>
     /// 未サポート操作チェック
