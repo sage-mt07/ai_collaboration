@@ -7,65 +7,50 @@ using KsqlDsl.SchemaRegistry;
 
 namespace KsqlDsl.SchemaRegistry.Implementation
 {
-    /// <summary>
-    /// Confluent Schema Registry client implementation (Avro schemas only)
-    /// KsqlDsl supports Avro format exclusively for schema management
-    /// </summary>
     public class ConfluentSchemaRegistryClient : ISchemaRegistryClient
     {
         private readonly Confluent.SchemaRegistry.ISchemaRegistryClient _confluentClient;
         private readonly SchemaRegistryConfig _config;
         private bool _disposed = false;
 
-        /// <summary>
-        /// Initializes a new instance of ConfluentSchemaRegistryClient
-        /// </summary>
-        /// <param name="config">Schema registry configuration</param>
         public ConfluentSchemaRegistryClient(SchemaRegistryConfig config)
         {
             _config = config ?? throw new ArgumentNullException(nameof(config));
 
-            // Configure Confluent Schema Registry client
             var confluentConfig = new Confluent.SchemaRegistry.SchemaRegistryConfig
             {
                 Url = _config.Url
             };
 
-            // Set basic auth if provided
             if (!string.IsNullOrEmpty(_config.BasicAuthUserInfo))
             {
                 confluentConfig.BasicAuthUserInfo = _config.BasicAuthUserInfo;
             }
 
-            // Set timeout if specified
             if (_config.TimeoutMs > 0)
             {
                 confluentConfig.RequestTimeoutMs = _config.TimeoutMs;
             }
 
-            // Set max cached schemas if specified  
             if (_config.MaxCachedSchemas > 0)
             {
                 confluentConfig.MaxCachedSchemas = _config.MaxCachedSchemas;
             }
 
-            // Add additional properties
             foreach (var property in _config.Properties)
             {
                 confluentConfig.Set(property.Key, property.Value);
             }
 
-            // Create the Confluent client
             _confluentClient = new CachedSchemaRegistryClient(confluentConfig);
         }
 
-        /// <summary>
-        /// Registers both key and value Avro schemas for the specified topic
-        /// </summary>
-        /// <param name="topicName">The topic name</param>
-        /// <param name="keySchema">The key schema (Avro format)</param>
-        /// <param name="valueSchema">The value schema (Avro format)</param>
-        /// <returns>Tuple of (keySchemaId, valueSchemaId)</returns>
+        // 修正理由：KafkaProducerServiceでAvroSerializerが内部Confluentクライアントが必要なため公開
+        public Confluent.SchemaRegistry.ISchemaRegistryClient GetConfluentClient()
+        {
+            return _confluentClient;
+        }
+
         public async Task<(int keySchemaId, int valueSchemaId)> RegisterTopicSchemasAsync(string topicName, string keySchema, string valueSchema)
         {
             if (string.IsNullOrEmpty(topicName))
@@ -81,12 +66,6 @@ namespace KsqlDsl.SchemaRegistry.Implementation
             return (keySchemaId, valueSchemaId);
         }
 
-        /// <summary>
-        /// Registers an Avro key schema for the specified topic
-        /// </summary>
-        /// <param name="topicName">The topic name</param>
-        /// <param name="keySchema">The key schema (Avro format)</param>
-        /// <returns>The key schema ID</returns>
         public async Task<int> RegisterKeySchemaAsync(string topicName, string keySchema)
         {
             if (string.IsNullOrEmpty(topicName))
@@ -98,12 +77,6 @@ namespace KsqlDsl.SchemaRegistry.Implementation
             return await RegisterSchemaAsync(subject, keySchema);
         }
 
-        /// <summary>
-        /// Registers an Avro value schema for the specified topic
-        /// </summary>
-        /// <param name="topicName">The topic name</param>
-        /// <param name="valueSchema">The value schema (Avro format)</param>
-        /// <returns>The value schema ID</returns>
         public async Task<int> RegisterValueSchemaAsync(string topicName, string valueSchema)
         {
             if (string.IsNullOrEmpty(topicName))
@@ -115,12 +88,6 @@ namespace KsqlDsl.SchemaRegistry.Implementation
             return await RegisterSchemaAsync(subject, valueSchema);
         }
 
-        /// <summary>
-        /// Registers a new Avro schema for the specified subject (legacy method)
-        /// </summary>
-        /// <param name="subject">The subject name</param>
-        /// <param name="avroSchema">The Avro schema to register</param>
-        /// <returns>The schema ID assigned by the registry</returns>
         public async Task<int> RegisterSchemaAsync(string subject, string avroSchema)
         {
             if (string.IsNullOrEmpty(subject))
@@ -130,7 +97,6 @@ namespace KsqlDsl.SchemaRegistry.Implementation
 
             try
             {
-                // Create Schema object with Avro type only
                 var schemaObj = new Schema(avroSchema, Confluent.SchemaRegistry.SchemaType.Avro);
                 return await _confluentClient.RegisterSchemaAsync(subject, schemaObj);
             }
@@ -140,11 +106,6 @@ namespace KsqlDsl.SchemaRegistry.Implementation
             }
         }
 
-        /// <summary>
-        /// Gets the latest Avro schema for the specified subject
-        /// </summary>
-        /// <param name="subject">The subject name</param>
-        /// <returns>The latest Avro schema information</returns>
         public async Task<AvroSchemaInfo> GetLatestSchemaAsync(string subject)
         {
             if (string.IsNullOrEmpty(subject))
@@ -153,8 +114,7 @@ namespace KsqlDsl.SchemaRegistry.Implementation
             try
             {
                 var registeredSchema = await _confluentClient.GetLatestSchemaAsync(subject);
-                
-                // Validate that this is an Avro schema
+
                 if (registeredSchema.SchemaType != Confluent.SchemaRegistry.SchemaType.Avro)
                 {
                     throw new SchemaRegistryOperationException($"Subject '{subject}' contains non-Avro schema. KsqlDsl supports Avro schemas only.");
@@ -174,11 +134,6 @@ namespace KsqlDsl.SchemaRegistry.Implementation
             }
         }
 
-        /// <summary>
-        /// Gets a specific Avro schema by ID
-        /// </summary>
-        /// <param name="schemaId">The schema ID</param>
-        /// <returns>The Avro schema information</returns>
         public async Task<AvroSchemaInfo> GetSchemaByIdAsync(int schemaId)
         {
             if (schemaId <= 0)
@@ -187,8 +142,7 @@ namespace KsqlDsl.SchemaRegistry.Implementation
             try
             {
                 var schema = await _confluentClient.GetSchemaAsync(schemaId);
-                
-                // Validate that this is an Avro schema
+
                 if (schema.SchemaType != Confluent.SchemaRegistry.SchemaType.Avro)
                 {
                     throw new SchemaRegistryOperationException($"Schema with ID '{schemaId}' is not Avro format. KsqlDsl supports Avro schemas only.");
@@ -197,8 +151,8 @@ namespace KsqlDsl.SchemaRegistry.Implementation
                 return new AvroSchemaInfo
                 {
                     Id = schemaId,
-                    Version = -1, // Version not available when getting by ID
-                    Subject = string.Empty, // Subject not available when getting by ID
+                    Version = -1,
+                    Subject = string.Empty,
                     AvroSchema = schema.SchemaString
                 };
             }
@@ -208,12 +162,6 @@ namespace KsqlDsl.SchemaRegistry.Implementation
             }
         }
 
-        /// <summary>
-        /// Checks if an Avro schema is compatible with the latest version of the subject
-        /// </summary>
-        /// <param name="subject">The subject name</param>
-        /// <param name="avroSchema">The Avro schema to check</param>
-        /// <returns>True if compatible, false otherwise</returns>
         public async Task<bool> CheckCompatibilityAsync(string subject, string avroSchema)
         {
             if (string.IsNullOrEmpty(subject))
@@ -232,11 +180,6 @@ namespace KsqlDsl.SchemaRegistry.Implementation
             }
         }
 
-        /// <summary>
-        /// Gets all versions of an Avro schema for the specified subject
-        /// </summary>
-        /// <param name="subject">The subject name</param>
-        /// <returns>List of version numbers</returns>
         public async Task<IList<int>> GetSchemaVersionsAsync(string subject)
         {
             if (string.IsNullOrEmpty(subject))
@@ -252,12 +195,6 @@ namespace KsqlDsl.SchemaRegistry.Implementation
             }
         }
 
-        /// <summary>
-        /// Gets a specific version of an Avro schema for the specified subject
-        /// </summary>
-        /// <param name="subject">The subject name</param>
-        /// <param name="version">The version number</param>
-        /// <returns>The Avro schema information</returns>
         public async Task<AvroSchemaInfo> GetSchemaAsync(string subject, int version)
         {
             if (string.IsNullOrEmpty(subject))
@@ -268,8 +205,7 @@ namespace KsqlDsl.SchemaRegistry.Implementation
             try
             {
                 var registeredSchema = await _confluentClient.GetRegisteredSchemaAsync(subject, version);
-                
-                // Validate that this is an Avro schema
+
                 if (registeredSchema.SchemaType != Confluent.SchemaRegistry.SchemaType.Avro)
                 {
                     throw new SchemaRegistryOperationException($"Subject '{subject}' version {version} contains non-Avro schema. KsqlDsl supports Avro schemas only.");
@@ -289,11 +225,6 @@ namespace KsqlDsl.SchemaRegistry.Implementation
             }
         }
 
-        /// <summary>
-        /// Gets all subjects registered in the schema registry
-        /// Note: This returns all subjects, but KsqlDsl will only work with Avro schemas
-        /// </summary>
-        /// <returns>List of subject names</returns>
         public async Task<IList<string>> GetAllSubjectsAsync()
         {
             try
@@ -306,19 +237,12 @@ namespace KsqlDsl.SchemaRegistry.Implementation
             }
         }
 
-        /// <summary>
-        /// Disposes the client resources
-        /// </summary>
         public void Dispose()
         {
             Dispose(true);
             GC.SuppressFinalize(this);
         }
 
-        /// <summary>
-        /// Disposes the client resources
-        /// </summary>
-        /// <param name="disposing">True if disposing, false if finalizing</param>
         protected virtual void Dispose(bool disposing)
         {
             if (!_disposed && disposing)
@@ -329,9 +253,6 @@ namespace KsqlDsl.SchemaRegistry.Implementation
         }
     }
 
-    /// <summary>
-    /// Exception thrown when schema registry operations fail
-    /// </summary>
     public class SchemaRegistryOperationException : Exception
     {
         public SchemaRegistryOperationException(string message) : base(message) { }
