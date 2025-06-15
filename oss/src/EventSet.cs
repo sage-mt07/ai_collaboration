@@ -389,12 +389,14 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T>
     // oss/src/EventSet.cs の ForEachAsync メソッド部分の修正
 
 
-    public async Task ForEachAsync(Func<T, Task> action, int timeoutMs = int.MaxValue, CancellationToken cancellationToken = default)
+    public async Task ForEachAsync(Func<T, Task> action, TimeSpan timeout = default, CancellationToken cancellationToken = default)
     {
         if (action == null)
             throw new ArgumentNullException(nameof(action));
 
         var topicName = _entityModel.TopicAttribute?.TopicName ?? _entityModel.EntityType.Name;
+        // timeout が default(TimeSpan.Zero) の場合は無制限として扱う
+        var timeoutMs = timeout == TimeSpan.Zero ? int.MaxValue : (int)timeout.TotalMilliseconds;
 
         // 修正理由：ForEachAsyncはPush Query（ストリーミング取得）専用として修正
         var ksqlQuery = ToKsql(isPullQuery: false); // Push Query（EMIT CHANGES付き）
