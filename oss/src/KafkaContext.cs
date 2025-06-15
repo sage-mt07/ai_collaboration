@@ -10,10 +10,11 @@ using System.Threading.Tasks;
 
 namespace KsqlDsl;
 
-public abstract class KafkaContext : IDisposable
+public abstract class KafkaContext : IDisposable, IAsyncDisposable
 {
     private readonly Lazy<ModelBuilder> _modelBuilder;
     private readonly Dictionary<Type, object> _eventSets = new();
+    private readonly Lazy<KafkaProducerService> _producerService;
     private bool _disposed = false;
     private bool _modelBuilt = false;
 
@@ -33,6 +34,8 @@ public abstract class KafkaContext : IDisposable
             return modelBuilder;
         });
 
+        _producerService = new Lazy<KafkaProducerService>(() => new KafkaProducerService(Options));
+
         InitializeEventSets();
     }
 
@@ -48,6 +51,8 @@ public abstract class KafkaContext : IDisposable
             return modelBuilder;
         });
 
+        _producerService = new Lazy<KafkaProducerService>(() => new KafkaProducerService(Options));
+
         InitializeEventSets();
     }
 
@@ -55,6 +60,11 @@ public abstract class KafkaContext : IDisposable
 
     protected virtual void OnConfiguring(KafkaContextOptionsBuilder optionsBuilder)
     {
+    }
+
+    internal KafkaProducerService GetProducerService()
+    {
+        return _producerService.Value;
     }
 
     private void InitializeEventSets()
@@ -193,6 +203,11 @@ public abstract class KafkaContext : IDisposable
         {
             _eventSets.Clear();
 
+            if (_producerService.IsValueCreated)
+            {
+                _producerService.Value.Dispose();
+            }
+
             if (Options.EnableDebugLogging)
             {
                 Console.WriteLine("[DEBUG] KafkaContext.Dispose: リソース解放完了");
@@ -211,6 +226,10 @@ public abstract class KafkaContext : IDisposable
 
     protected virtual async ValueTask DisposeAsyncCore()
     {
+        if (_producerService.IsValueCreated)
+        {
+            _producerService.Value.Dispose();
+        }
         await Task.Delay(1);
     }
 

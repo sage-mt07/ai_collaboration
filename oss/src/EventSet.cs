@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -68,12 +69,15 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T>
         if (entity == null)
             throw new ArgumentNullException(nameof(entity));
 
-        await Task.Delay(1, cancellationToken);
+        ValidateEntity(entity);
+
+        var producerService = _context.GetProducerService();
+        await producerService.SendAsync(entity, _entityModel, cancellationToken);
 
         if (_context.Options.EnableDebugLogging)
         {
             var topicName = _entityModel.TopicAttribute?.TopicName ?? _entityModel.EntityType.Name;
-            Console.WriteLine($"[DEBUG] EventSet.AddAsync: {typeof(T).Name} → Topic: {topicName}");
+            Console.WriteLine($"[DEBUG] EventSet.AddAsync: {typeof(T).Name} → Topic: {topicName} (送信完了)");
         }
     }
 
@@ -83,10 +87,22 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T>
             throw new ArgumentNullException(nameof(entities));
 
         var entityList = entities.ToList();
+        if (entityList.Count == 0)
+            return;
 
+        // Validate all entities first
         foreach (var entity in entityList)
         {
-            await AddAsync(entity, cancellationToken);
+            ValidateEntity(entity);
+        }
+
+        var producerService = _context.GetProducerService();
+        await producerService.SendRangeAsync(entityList, _entityModel, cancellationToken);
+
+        if (_context.Options.EnableDebugLogging)
+        {
+            var topicName = _entityModel.TopicAttribute?.TopicName ?? _entityModel.EntityType.Name;
+            Console.WriteLine($"[DEBUG] EventSet.AddRangeAsync: {entityList.Count}件の{typeof(T).Name} → Topic: {topicName} (送信完了)");
         }
     }
 
@@ -268,6 +284,62 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T>
     public EventSet<T> OrderByDescending<TKey>(Expression<Func<T, TKey>> keySelector)
     {
         throw new NotSupportedException("ORDER BY operations are not supported in ksqlDB. Use windowed aggregations for time-based ordering.");
+    }
+
+    private void ValidateEntity(T entity)
+    {
+        if (entity == null)
+            throw new ArgumentNullException(nameof(entity));
+
+        // Required key properties validation
+        if (_entityModel.KeyProperties.Length > 0)
+        {
+            foreach (var keyProperty in _entityModel.KeyProperties)
+            {
+                var keyValue = keyProperty.GetValue(entity);
+                if (keyValue == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Key property '{keyProperty.Name}' cannot be null for entity type '{typeof(T).Name}'");
+                }
+
+                // For string keys, check for empty values
+                if (keyProperty.PropertyType == typeof(string) && string.IsNullOrEmpty((string)keyValue))
+                {
+                    throw new InvalidOperationException(
+                        $"Key property '{keyProperty.Name}' cannot be empty for entity type '{typeof(T).Name}'");
+                }
+            }
+        }
+
+        // Additional validation based on validation mode
+        if (_context.Options.ValidationMode == ValidationMode.Strict)
+        {
+            ValidateEntityStrict(entity);
+        }
+    }
+
+    private void ValidateEntityStrict(T entity)
+    {
+        // Strict validation: Check for required properties, MaxLength constraints, etc.
+        var entityType = typeof(T);
+        var properties = entityType.GetProperties();
+
+        foreach (var property in properties)
+        {
+            var value = property.GetValue(entity);
+
+            // MaxLength validation for string properties
+            var maxLengthAttr = property.GetCustomAttribute<KsqlDsl.Attributes.MaxLengthAttribute>();
+            if (maxLengthAttr != null && value is string stringValue)
+            {
+                if (stringValue.Length > maxLengthAttr.Length)
+                {
+                    throw new InvalidOperationException(
+                        $"Property '{property.Name}' exceeds maximum length of {maxLengthAttr.Length}. Current length: {stringValue.Length}");
+                }
+            }
+        }
     }
 
     public override string ToString()

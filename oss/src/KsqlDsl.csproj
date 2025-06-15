@@ -15,9 +15,11 @@
       <_Parameter1>KsqlDsl.Tests</_Parameter1>
     </AssemblyAttribute>
   </ItemGroup>
-  
-  <ItemGroup>
-    <PackageReference Include="Confluent.SchemaRegistry" Version="2.3.0" />
-    <PackageReference Include="System.Text.Json" Version="8.0.5" />
-  </ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Confluent.Kafka" Version="2.3.0" />
+		<PackageReference Include="Confluent.SchemaRegistry" Version="2.3.0" />
+		<PackageReference Include="Confluent.SchemaRegistry.Serdes.Avro" Version="2.3.0" />
+		<PackageReference Include="System.Text.Json" Version="8.0.5" />
+	</ItemGroup>
 </Project>
