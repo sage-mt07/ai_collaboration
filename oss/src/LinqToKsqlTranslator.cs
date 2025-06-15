@@ -16,8 +16,11 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
     private string? _havingClause;
     private string? _windowClause;
     private string? _joinClause;
+    private string? _limitClause;
     private bool _hasAggregation = false;
     private bool _isAfterGroupBy = false;
+    // 修正理由：Phase3-2でPull Query判定追加
+    private bool _isPullQuery = false;
 
     public string Translate(Expression expression, string topicName)
     {
@@ -28,8 +31,11 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
         _havingClause = null;
         _windowClause = null;
         _joinClause = null;
+        _limitClause = null;
         _hasAggregation = false;
         _isAfterGroupBy = false;
+        // 修正理由：Phase3-2でPull Query判定初期化
+        _isPullQuery = false;
 
         Visit(expression);
 
@@ -59,6 +65,8 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
                         {
                             var conditionBuilder = new KsqlConditionBuilder();
                             _whereClause = conditionBuilder.Build(whereExpression);
+                            // 修正理由：Phase3-2でPull Query判定ロジック追加
+                            _isPullQuery = true; // WHERE句があるクエリはPull Query候補
                         }
                     }
                 }
@@ -95,16 +103,29 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
                         _groupByClause = groupByBuilder;
                         _hasAggregation = true;
                         _isAfterGroupBy = true;
+                        // 修正理由：Phase3-2でPull Query判定ロジック - GROUP BYはPush Query
+                        _isPullQuery = false; // 集約クエリは通常Push Query
                     }
                 }
                 break;
 
             case "Take":
-                // TODO: LIMIT句の実装
+                // 修正理由：Phase3-2でLIMIT句実装
+                if (node.Arguments.Count == 2 && node.Arguments[1] is ConstantExpression limitConstant)
+                {
+                    var limitValue = limitConstant.Value;
+                    if (limitValue is int intLimit)
+                    {
+                        _limitClause = $"LIMIT {intLimit}";
+                        // 修正理由：Phase3-2でPull Query判定 - LIMITがあるクエリはPull Query
+                        _isPullQuery = true;
+                    }
+                }
                 break;
 
             case "Skip":
-                // TODO: OFFSET句の実装（ksqlDBでサポートされている場合）
+                // 修正理由：ksqlDBではOFFSETサポートが限定的のため警告
+                // 現在は実装せず、将来の拡張で対応
                 break;
 
             case "OrderBy":
@@ -119,6 +140,8 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
                 {
                     var joinBuilder = new KsqlJoinBuilder();
                     _joinClause = joinBuilder.Build(node);
+                    // 修正理由：Phase3-2でPull Query判定 - JOINは通常Push Query
+                    _isPullQuery = false;
                     return node;
                 }
                 break;
@@ -127,6 +150,8 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
                 if (node.Arguments.Count >= 2)
                 {
                     _hasAggregation = true;
+                    // 修正理由：Phase3-2でPull Query判定 - 集約はPush Query
+                    _isPullQuery = false;
                 }
                 break;
 
@@ -135,6 +160,8 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
                 if (IsAggregateMethod(node.Method.Name))
                 {
                     _hasAggregation = true;
+                    // 修正理由：Phase3-2でPull Query判定 - 集約はPush Query
+                    _isPullQuery = false;
                 }
                 break;
         }
@@ -217,16 +244,49 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
             query.Append($" {_havingClause}");
         }
 
-        // EMIT句（ksqlDBでは通常必要）
-        if (_hasAggregation)
+        // LIMIT句（Pull Queryの場合）
+        if (!string.IsNullOrEmpty(_limitClause))
         {
-            query.Append(" EMIT CHANGES");
-        }
-        else
-        {
-            query.Append(" EMIT CHANGES");
+            query.Append($" {_limitClause}");
         }
 
+        // 修正理由：Phase3-2でPull Query判定に基づくEMIT句制御
+        // Pull QueryにはEMIT句を付けない、Push QueryにはEMIT CHANGESを付ける
+        if (!_isPullQuery && (_hasAggregation || string.IsNullOrEmpty(_whereClause)))
+        {
+            // Push Query（ストリーミング）の場合のみEMIT CHANGES
+            query.Append(" EMIT CHANGES");
+        }
+        // Pull Queryの場合はEMIT句なし（瞬時実行）
+
         return query.ToString();
+    }
+
+    /// <summary>
+    /// クエリがPull QueryかPush Queryかを判定
+    /// 修正理由：Phase3-2でPull/Push判定機能追加
+    /// </summary>
+    /// <returns>Pull Queryの場合true、Push Queryの場合false</returns>
+    public bool IsPullQuery()
+    {
+        return _isPullQuery && !_hasAggregation && string.IsNullOrEmpty(_groupByClause);
+    }
+
+    /// <summary>
+    /// 診断情報を取得（デバッグ用）
+    /// 修正理由：Phase3-2でデバッグ支援機能追加
+    /// </summary>
+    public string GetDiagnostics()
+    {
+        var diagnostics = new StringBuilder();
+        diagnostics.AppendLine($"Query Type: {(IsPullQuery() ? "Pull Query" : "Push Query")}");
+        diagnostics.AppendLine($"Has Aggregation: {_hasAggregation}");
+        diagnostics.AppendLine($"FROM: {_fromClause}");
+        diagnostics.AppendLine($"SELECT: {_selectClause ?? "SELECT *"}");
+        diagnostics.AppendLine($"WHERE: {_whereClause ?? "None"}");
+        diagnostics.AppendLine($"GROUP BY: {_groupByClause ?? "None"}");
+        diagnostics.AppendLine($"HAVING: {_havingClause ?? "None"}");
+        diagnostics.AppendLine($"LIMIT: {_limitClause ?? "None"}");
+        return diagnostics.ToString();
     }
 }
