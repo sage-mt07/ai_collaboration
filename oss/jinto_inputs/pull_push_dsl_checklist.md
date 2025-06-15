@@ -43,10 +43,14 @@ if (!isPullQuery && 条件)
 - `.ForEachAsync()` 実行 → EMIT CHANGES を含むクエリが生成されているか？
 - 逐次コールバックが呼ばれていることを確認できるか？（モック／トレース）
 
-### 7. `ToKsql()` の出力を直接検証するテストが存在するか？
+### 7. `ToKsql()` の出力を検証するテストが存在するか？
 
-- `ToKsql(true)` で EMIT句がないこと
-- `ToKsql(false)` で EMIT句が含まれていること
+- `ToKsql()` の出力クエリが構文的に完全か（SELECT, FROM, WHERE などを含む）
+- EMIT CHANGES の有無が Push/Pull の指定に合っているか
+
+🧠補足（迅人向け）：
+KSQLの出力テストでは、常に **「構文全体の正しさ」＋「特殊句の正しさ」** の両方を確認すること。
+
 
 ---
 
