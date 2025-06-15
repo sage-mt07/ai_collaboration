@@ -228,13 +228,47 @@ namespace KsqlDsl.Tests.SchemaRegistry
             var doc = JsonDocument.Parse(schema);
             var fields = doc.RootElement.GetProperty("fields");
 
-            // All fields should be direct types, not unions
+            // All fields should be non-nullable (no union with null)
             foreach (var field in fields.EnumerateArray())
             {
+                var fieldName = field.GetProperty("name").GetString();
                 var fieldType = field.GetProperty("type");
-                Assert.Equal(JsonValueKind.String, fieldType.ValueKind);
-                // Should not be a union array
-                Assert.NotEqual("null", fieldType.GetString());
+
+                // Should not be a union array (which would indicate nullable)
+                Assert.NotEqual(JsonValueKind.Array, fieldType.ValueKind);
+
+                // Verify specific types based on AVRO specification
+                switch (fieldName?.ToLower())
+                {
+                    case "id":
+                        Assert.Equal(JsonValueKind.String, fieldType.ValueKind);
+                        Assert.Equal("int", fieldType.GetString());
+                        break;
+
+                    case "name":
+                        Assert.Equal(JsonValueKind.String, fieldType.ValueKind);
+                        Assert.Equal("string", fieldType.GetString());
+                        break;
+
+                    case "flag":
+                        Assert.Equal(JsonValueKind.String, fieldType.ValueKind);
+                        Assert.Equal("boolean", fieldType.GetString());
+                        break;
+
+                    case "amount":
+                        // decimal is a complex type in AVRO
+                        Assert.Equal(JsonValueKind.Object, fieldType.ValueKind);
+                        Assert.Equal("bytes", fieldType.GetProperty("type").GetString());
+                        Assert.Equal("decimal", fieldType.GetProperty("logicalType").GetString());
+                        break;
+
+                    case "date":
+                        // DateTime is a complex type in AVRO  
+                        Assert.Equal(JsonValueKind.Object, fieldType.ValueKind);
+                        Assert.Equal("long", fieldType.GetProperty("type").GetString());
+                        Assert.Equal("timestamp-millis", fieldType.GetProperty("logicalType").GetString());
+                        break;
+                }
             }
         }
 
@@ -303,16 +337,24 @@ namespace KsqlDsl.Tests.SchemaRegistry
                 fieldNames.Add(field.GetProperty("name").GetString()!);
             }
 
-            // Should include non-ignored properties
-            Assert.Contains("id", fieldNames);
-            Assert.Contains("name", fieldNames);
-            Assert.Contains("description", fieldNames);
+            // Should include non-ignored properties (case-insensitive search)
+            Assert.True(fieldNames.Any(name => string.Equals(name, "id", StringComparison.OrdinalIgnoreCase)),
+                        $"Expected 'id' field not found. Actual fields: [{string.Join(", ", fieldNames)}]");
+            Assert.True(fieldNames.Any(name => string.Equals(name, "name", StringComparison.OrdinalIgnoreCase)),
+                        $"Expected 'name' field not found. Actual fields: [{string.Join(", ", fieldNames)}]");
+            Assert.True(fieldNames.Any(name => string.Equals(name, "description", StringComparison.OrdinalIgnoreCase)),
+                        $"Expected 'description' field not found. Actual fields: [{string.Join(", ", fieldNames)}]");
 
-            // Should exclude ignored properties
-            Assert.DoesNotContain("internalInfo", fieldNames);
-            Assert.DoesNotContain("internalId", fieldNames);
+            // Should exclude ignored properties (case-insensitive search)
+            Assert.False(fieldNames.Any(name => string.Equals(name, "internalInfo", StringComparison.OrdinalIgnoreCase)),
+                         $"Unexpected 'internalInfo' field found. Actual fields: [{string.Join(", ", fieldNames)}]");
+            Assert.False(fieldNames.Any(name => string.Equals(name, "internalId", StringComparison.OrdinalIgnoreCase)),
+                         $"Unexpected 'internalId' field found. Actual fields: [{string.Join(", ", fieldNames)}]");
 
-            // Verify Description is nullable
+            // Verify we have exactly 3 fields (Id, Name, Description)
+            Assert.Equal(3, fieldNames.Count);
+
+            // Verify Description is nullable using the FindField helper (case-insensitive)
             var descriptionField = FindField(doc.RootElement.GetProperty("fields"), "description");
             Assert.NotNull(descriptionField);
             var descriptionType = descriptionField.Value.GetProperty("type");

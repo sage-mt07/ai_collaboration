@@ -403,8 +403,22 @@ public static class SchemaGenerator
     /// <returns>Avro nullable primitive schema</returns>
     private static string GenerateNullablePrimitiveKeySchema(Type primitiveType)
     {
-        var innerType = GeneratePrimitiveKeySchema(primitiveType);
-        return JsonSerializer.Serialize(new object[] { "null", JsonSerializer.Deserialize<object>(innerType) });
+        // 内部型のオブジェクト表現を直接作成
+        object innerTypeObj = primitiveType switch
+        {
+            Type t when t == typeof(string) => "string",
+            Type t when t == typeof(int) => "int",
+            Type t when t == typeof(long) => "long",
+            Type t when t == typeof(byte[]) => "bytes",
+            Type t when t == typeof(Guid) => new { type = "string", logicalType = "uuid" },
+            _ => "string"
+        };
+
+        // Union配列を作成：["null", 型]
+        var unionArray = new object[] { "null", innerTypeObj };
+
+        // JSON配列として直接シリアライズ
+        return JsonSerializer.Serialize(unionArray);
     }
 
     /// <summary>
