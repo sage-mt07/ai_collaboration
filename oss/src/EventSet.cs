@@ -1,4 +1,5 @@
 ﻿using Ksql.EntityFrameworkCore;
+using KsqlDsl.Ksql;
 using KsqlDsl.Modeling;
 using KsqlDsl.Validation;
 using System;
@@ -11,7 +12,7 @@ using System.Threading.Tasks;
 
 namespace KsqlDsl;
 
-public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T> where T : class
+public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T>
 {
     private readonly KafkaContext _context;
     private readonly EntityModel _entityModel;
@@ -155,16 +156,16 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T> where T : class
         try
         {
             var topicName = _entityModel.TopicAttribute?.TopicName ?? _entityModel.EntityType.Name;
-
-            if (_expression is ConstantExpression)
-            {
-                return $"SELECT * FROM {topicName}";
-            }
-
-            return $"SELECT * FROM {topicName} /* LINQ→KSQL変換: 実装中 */";
+            var translator = new LinqToKsqlTranslator();
+            return translator.Translate(_expression, topicName);
         }
         catch (Exception ex)
         {
+            if (_context.Options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] KSQL変換エラー: {ex.Message}");
+                Console.WriteLine($"[DEBUG] Expression: {_expression}");
+            }
             return $"/* KSQL変換エラー: {ex.Message} */";
         }
     }
@@ -182,6 +183,91 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T> where T : class
     public string GetTopicName()
     {
         return _entityModel.TopicAttribute?.TopicName ?? _entityModel.EntityType.Name;
+    }
+
+    public EventSet<T> Where(Expression<Func<T, bool>> predicate)
+    {
+        if (predicate == null)
+            throw new ArgumentNullException(nameof(predicate));
+
+        var methodCall = Expression.Call(
+            typeof(Queryable),
+            nameof(Queryable.Where),
+            new[] { typeof(T) },
+            _expression,
+            Expression.Quote(predicate));
+
+        return new EventSet<T>(_context, _entityModel, methodCall);
+    }
+
+    public EventSet<TResult> Select<TResult>(Expression<Func<T, TResult>> selector)
+    {
+        if (selector == null)
+            throw new ArgumentNullException(nameof(selector));
+
+        var methodCall = Expression.Call(
+            typeof(Queryable),
+            nameof(Queryable.Select),
+            new[] { typeof(T), typeof(TResult) },
+            _expression,
+            Expression.Quote(selector));
+
+        return new EventSet<TResult>(_context, _entityModel, methodCall);
+    }
+
+    public EventSet<IGrouping<TKey, T>> GroupBy<TKey>(Expression<Func<T, TKey>> keySelector)
+    {
+        if (keySelector == null)
+            throw new ArgumentNullException(nameof(keySelector));
+
+        var methodCall = Expression.Call(
+            typeof(Queryable),
+            nameof(Queryable.GroupBy),
+            new[] { typeof(T), typeof(TKey) },
+            _expression,
+            Expression.Quote(keySelector));
+
+        return new EventSet<IGrouping<TKey, T>>(_context, _entityModel, methodCall);
+    }
+
+    public EventSet<T> Take(int count)
+    {
+        if (count <= 0)
+            throw new ArgumentException("Count must be positive", nameof(count));
+
+        var methodCall = Expression.Call(
+            typeof(Queryable),
+            nameof(Queryable.Take),
+            new[] { typeof(T) },
+            _expression,
+            Expression.Constant(count));
+
+        return new EventSet<T>(_context, _entityModel, methodCall);
+    }
+
+    public EventSet<T> Skip(int count)
+    {
+        if (count < 0)
+            throw new ArgumentException("Count cannot be negative", nameof(count));
+
+        var methodCall = Expression.Call(
+            typeof(Queryable),
+            nameof(Queryable.Skip),
+            new[] { typeof(T) },
+            _expression,
+            Expression.Constant(count));
+
+        return new EventSet<T>(_context, _entityModel, methodCall);
+    }
+
+    public EventSet<T> OrderBy<TKey>(Expression<Func<T, TKey>> keySelector)
+    {
+        throw new NotSupportedException("ORDER BY operations are not supported in ksqlDB. Use windowed aggregations for time-based ordering.");
+    }
+
+    public EventSet<T> OrderByDescending<TKey>(Expression<Func<T, TKey>> keySelector)
+    {
+        throw new NotSupportedException("ORDER BY operations are not supported in ksqlDB. Use windowed aggregations for time-based ordering.");
     }
 
     public override string ToString()

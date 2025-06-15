@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 
 namespace KsqlDsl;
 
-internal class EventQueryProvider<T> : IQueryProvider where T : class
+internal class EventQueryProvider<T> : IQueryProvider
 {
     private readonly KafkaContext _context;
     private readonly EntityModel _entityModel;
@@ -36,12 +36,7 @@ internal class EventQueryProvider<T> : IQueryProvider where T : class
         if (expression == null)
             throw new ArgumentNullException(nameof(expression));
 
-        if (typeof(TElement) != typeof(T))
-        {
-            throw new ArgumentException($"EventQueryProvider<{typeof(T).Name}>は{typeof(TElement).Name}タイプのクエリを作成できません。");
-        }
-
-        return (IQueryable<TElement>)new EventSet<T>(_context, _entityModel, expression);
+        return new EventSet<TElement>(_context, _entityModel, expression);
     }
 
     public object? Execute(Expression expression)

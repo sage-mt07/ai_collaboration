@@ -1,0 +1,73 @@
+【鳴瀬 作業指示】EventSet<T>本実装
+■ 目的
+EventSet<T>の各メソッドを、「設計・テスト共通認識ドキュメント-final」の仕様に完全準拠する形で本実装化せよ。
+
+■ 主な観点
+Kafkaとの実データ送受信、LINQ→KSQL変換、Avroスキーマ連携を実際に実装すること
+
+ダミー・スタブ・Task.Delayは極力排除
+
+テスト資産の観点が赤信号にならずにすべてグリーンになることを優先
+
+設計ドキュメントで定められた「厳格バリデーション／ゆるめモード」「Consumerオプション個別指定」「パフォーマンスモード」「例外設計」等も反映
+
+■ 具体的実装タスク
+AddAsync / AddRangeAsync
+
+Kafka Producer経由で、POCO（Avroシリアライズ済み）を正しいトピックへ送信
+
+トピック名・パーティション等はPOCO属性・EntityModelから取得
+
+エラー・バリデーション不整合時は即例外
+
+ToList / ToListAsync
+
+LINQ式→KSQL変換→Kafka/ksqlDBから該当データを取得・デシリアライズ
+
+クエリパラメータ・トピック名・制約条件をEntityModel／LINQ式から生成
+
+Subscribe / SubscribeAsync / ForEachAsync
+
+Kafka Consumerを生成し、Push型でストリーム受信→onNextコール
+
+CancellationToken, Timeout等に応じてGraceful Shutdown／途中終了
+
+DLQ・エラー時はロギング／通知
+
+ToKsql
+
+LINQ式（_expression）をパース→設計ドキュメント記載のKSQL生成ロジックを実装
+
+NotSupportedException設計に準拠
+
+バリデーション（属性／スキーマ整合）
+
+OnModelCreatingでEntityModel／POCO→Avroスキーマを必ず突合・未定義属性は例外 or 警告
+
+スキーマ互換チェック
+
+デバッグ・ロギング・例外伝播
+
+EnableDebugLogging等に準拠し、デバッグ出力／例外メッセージを明示
+
+設計ドキュメント例外設計を厳守
+
+■ 制約・要件
+すべての「テスト観点」が通ること
+
+設計ドキュメントの正規仕様から逸脱しないこと
+
+既存I/F・呼び出しパターン（テストで使われているもの）は壊さないこと
+
+未サポート機能（OrderBy等）は明示的にNotSupportedException
+
+■ 開発フロー
+1機能ずつスタブ→本実装化
+
+テスト資産をCI的に回しつつ、観点グリーン化
+
+主要観点ごとにコミットを分け、各段階で「ここまで通った」ことを記録
+
+■ 必要に応じて
+EntityModel、KafkaContext、スキーマジェネレータ等のサブ実装も作業対象
+
