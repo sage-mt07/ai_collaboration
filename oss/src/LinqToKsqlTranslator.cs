@@ -19,10 +19,17 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
     private string? _limitClause;
     private bool _hasAggregation = false;
     private bool _isAfterGroupBy = false;
-    // 修正理由：Phase3-2でPull Query判定追加
+    // 修正理由：外部フラグ制御方式に変更
     private bool _isPullQuery = false;
 
-    public string Translate(Expression expression, string topicName)
+    /// <summary>
+    /// LINQ式をKSQLクエリに変換（フラグ制御版）
+    /// </summary>
+    /// <param name="expression">LINQ式</param>
+    /// <param name="topicName">トピック名</param>
+    /// <param name="isPullQuery">Pull Queryフラグ（true: Pull Query, false: Push Query）</param>
+    /// <returns>KSQLクエリ文字列</returns>
+    public string Translate(Expression expression, string topicName, bool isPullQuery = false)
     {
         _fromClause = topicName;
         _selectClause = null;
@@ -34,12 +41,24 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
         _limitClause = null;
         _hasAggregation = false;
         _isAfterGroupBy = false;
-        // 修正理由：Phase3-2でPull Query判定初期化
-        _isPullQuery = false;
+
+        // 修正理由：外部から受け取ったフラグを設定
+        _isPullQuery = isPullQuery;
 
         Visit(expression);
 
         return BuildKsqlQuery();
+    }
+
+    /// <summary>
+    /// 既存のTranslateメソッド（後方互換性のため保持）
+    /// </summary>
+    /// <param name="expression">LINQ式</param>
+    /// <param name="topicName">トピック名</param>
+    /// <returns>KSQLクエリ文字列</returns>
+    public string Translate(Expression expression, string topicName)
+    {
+        return Translate(expression, topicName, isPullQuery: false);
     }
 
     protected override Expression VisitMethodCall(MethodCallExpression node)
@@ -65,8 +84,8 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
                         {
                             var conditionBuilder = new KsqlConditionBuilder();
                             _whereClause = conditionBuilder.Build(whereExpression);
-                            // 修正理由：Phase3-2でPull Query判定ロジック追加
-                            _isPullQuery = true; // WHERE句があるクエリはPull Query候補
+                            // 修正理由：内部判定ロジック削除（外部フラグ制御のため）
+                            // _isPullQuery = true; // 削除
                         }
                     }
                 }
@@ -103,22 +122,22 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
                         _groupByClause = groupByBuilder;
                         _hasAggregation = true;
                         _isAfterGroupBy = true;
-                        // 修正理由：Phase3-2でPull Query判定ロジック - GROUP BYはPush Query
-                        _isPullQuery = false; // 集約クエリは通常Push Query
+                        // 修正理由：内部判定ロジック削除（外部フラグ制御のため）
+                        // _isPullQuery = false; // 削除
                     }
                 }
                 break;
 
             case "Take":
-                // 修正理由：Phase3-2でLIMIT句実装
+                // 修正理由：LIMIT句実装
                 if (node.Arguments.Count == 2 && node.Arguments[1] is ConstantExpression limitConstant)
                 {
                     var limitValue = limitConstant.Value;
                     if (limitValue is int intLimit)
                     {
                         _limitClause = $"LIMIT {intLimit}";
-                        // 修正理由：Phase3-2でPull Query判定 - LIMITがあるクエリはPull Query
-                        _isPullQuery = true;
+                        // 修正理由：内部判定ロジック削除（外部フラグ制御のため）
+                        // _isPullQuery = true; // 削除
                     }
                 }
                 break;
@@ -140,8 +159,8 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
                 {
                     var joinBuilder = new KsqlJoinBuilder();
                     _joinClause = joinBuilder.Build(node);
-                    // 修正理由：Phase3-2でPull Query判定 - JOINは通常Push Query
-                    _isPullQuery = false;
+                    // 修正理由：内部判定ロジック削除（外部フラグ制御のため）
+                    // _isPullQuery = false; // 削除
                     return node;
                 }
                 break;
@@ -150,8 +169,8 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
                 if (node.Arguments.Count >= 2)
                 {
                     _hasAggregation = true;
-                    // 修正理由：Phase3-2でPull Query判定 - 集約はPush Query
-                    _isPullQuery = false;
+                    // 修正理由：内部判定ロジック削除（外部フラグ制御のため）
+                    // _isPullQuery = false; // 削除
                 }
                 break;
 
@@ -160,8 +179,8 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
                 if (IsAggregateMethod(node.Method.Name))
                 {
                     _hasAggregation = true;
-                    // 修正理由：Phase3-2でPull Query判定 - 集約はPush Query
-                    _isPullQuery = false;
+                    // 修正理由：内部判定ロジック削除（外部フラグ制御のため）
+                    // _isPullQuery = false; // 削除
                 }
                 break;
         }
@@ -250,9 +269,9 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
             query.Append($" {_limitClause}");
         }
 
-        // 修正理由：Phase3-2でPull Query判定に基づくEMIT句制御
+        // 修正理由：フラグ制御方式でEMIT句制御
         // Pull QueryにはEMIT句を付けない、Push QueryにはEMIT CHANGESを付ける
-        if (!_isPullQuery && (_hasAggregation || string.IsNullOrEmpty(_whereClause)))
+        if (!_isPullQuery)
         {
             // Push Query（ストリーミング）の場合のみEMIT CHANGES
             query.Append(" EMIT CHANGES");
@@ -263,18 +282,16 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
     }
 
     /// <summary>
-    /// クエリがPull QueryかPush Queryかを判定
-    /// 修正理由：Phase3-2でPull/Push判定機能追加
+    /// クエリがPull QueryかPush Queryかを判定（外部フラグベース）
     /// </summary>
     /// <returns>Pull Queryの場合true、Push Queryの場合false</returns>
     public bool IsPullQuery()
     {
-        return _isPullQuery && !_hasAggregation && string.IsNullOrEmpty(_groupByClause);
+        return _isPullQuery;
     }
 
     /// <summary>
     /// 診断情報を取得（デバッグ用）
-    /// 修正理由：Phase3-2でデバッグ支援機能追加
     /// </summary>
     public string GetDiagnostics()
     {

@@ -116,16 +116,17 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T>
         // 修正理由：Phase3-3でKSQL生成前バリデーション追加
         ValidateQueryBeforeExecution();
 
-        var ksqlQuery = ToKsql();
+        // 修正理由：Pull Queryとして実行（isPullQuery: true）
+        var ksqlQuery = ToKsql(isPullQuery: true);
 
         if (_context.Options.EnableDebugLogging)
         {
             Console.WriteLine($"[DEBUG] EventSet.ToList: {typeof(T).Name} ← Topic: {topicName}");
             Console.WriteLine($"[DEBUG] Generated KSQL: {ksqlQuery}");
 
-            // 修正理由：Phase3-3で診断情報追加
+            // 修正理由：Phase3-3で診断情報追加（フラグ制御版）
             var translator = new LinqToKsqlTranslator();
-            translator.Translate(_expression, topicName);
+            translator.Translate(_expression, topicName, isPullQuery: true);
             Console.WriteLine($"[DEBUG] Query Diagnostics:");
             Console.WriteLine(translator.GetDiagnostics());
         }
@@ -184,16 +185,17 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T>
         // 修正理由：Phase3-3でKSQL生成前バリデーション追加
         ValidateQueryBeforeExecution();
 
-        var ksqlQueryAsync = ToKsql(); // 修正理由：CS0136エラー回避のため変数名変更
+        // 修正理由：Pull Queryとして実行（isPullQuery: true）
+        var ksqlQueryAsync = ToKsql(isPullQuery: true);
 
         if (_context.Options.EnableDebugLogging)
         {
             Console.WriteLine($"[DEBUG] EventSet.ToListAsync: {typeof(T).Name} ← Topic: {topicName}");
             Console.WriteLine($"[DEBUG] Generated KSQL: {ksqlQueryAsync}");
 
-            // 修正理由：Phase3-3で診断情報追加
+            // 修正理由：Phase3-3で診断情報追加（フラグ制御版）
             var translator = new LinqToKsqlTranslator();
-            translator.Translate(_expression, topicName);
+            translator.Translate(_expression, topicName, isPullQuery: true);
             Console.WriteLine($"[DEBUG] Query Diagnostics:");
             Console.WriteLine(translator.GetDiagnostics());
         }
@@ -390,24 +392,86 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T>
         if (action == null)
             throw new ArgumentNullException(nameof(action));
 
-        var items = await ToListAsync(cancellationToken);
+        var topicName = _entityModel.TopicAttribute?.TopicName ?? _entityModel.EntityType.Name;
 
-        foreach (var item in items)
+        // 修正理由：ForEachAsyncはPush Query（ストリーミング取得）専用として修正
+        var ksqlQuery = ToKsql(isPullQuery: false); // Push Query（EMIT CHANGES付き）
+
+        if (_context.Options.EnableDebugLogging)
         {
-            if (cancellationToken.IsCancellationRequested)
-                break;
+            Console.WriteLine($"[DEBUG] EventSet.ForEachAsync: {typeof(T).Name} ← Topic: {topicName} (Push型ストリーミング開始)");
+            Console.WriteLine($"[DEBUG] Generated KSQL: {ksqlQuery}");
+        }
 
-            await action(item);
+        // 修正理由：バリデーション実行
+        ValidateQueryBeforeExecution();
+
+        var consumerService = _context.GetConsumerService();
+
+        try
+        {
+            // 修正理由：Kafka Consumer のストリームAPIを使用して逐次処理
+            await consumerService.SubscribeStreamAsync<T>(
+                ksqlQuery,
+                _entityModel,
+                async (item) =>
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                        return;
+
+                    await action(item);
+                },
+                cancellationToken);
+
+            if (_context.Options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] ForEachAsync streaming completed for {typeof(T).Name}");
+            }
+        }
+        catch (KafkaConsumerException ex)
+        {
+            if (_context.Options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] ForEachAsync streaming error: {ex.Message}");
+            }
+
+            throw new InvalidOperationException(
+                $"Failed to stream from topic '{topicName}' for {typeof(T).Name}: {ex.Message}", ex);
+        }
+        catch (OperationCanceledException)
+        {
+            if (_context.Options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] ForEachAsync streaming cancelled for {typeof(T).Name}");
+            }
+            throw; // キャンセレーション例外はそのまま再スロー
+        }
+        catch (Exception ex)
+        {
+            if (_context.Options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] Unexpected ForEachAsync error: {ex.Message}");
+            }
+
+            throw new InvalidOperationException(
+                $"Unexpected error streaming {typeof(T).Name} from topic '{topicName}': {ex.Message}", ex);
         }
     }
 
-    public string ToKsql()
+    /// <summary>
+    /// LINQ式をKSQLクエリに変換（フラグ制御版）
+    /// 修正理由：event_set_interface_design.mdに準拠、Pull/Push判定フラグ追加
+    /// </summary>
+    /// <param name="isPullQuery">Pull Queryフラグ（true: Pull Query, false: Push Query）</param>
+    /// <returns>KSQLクエリ文字列</returns>
+    public string ToKsql(bool isPullQuery = false)
     {
         try
         {
             var topicName = _entityModel.TopicAttribute?.TopicName ?? _entityModel.EntityType.Name;
             var translator = new LinqToKsqlTranslator();
-            return translator.Translate(_expression, topicName);
+            // 修正理由：新しいフラグ制御版Translateメソッドを使用
+            return translator.Translate(_expression, topicName, isPullQuery);
         }
         catch (Exception ex)
         {
@@ -419,6 +483,8 @@ public class EventSet<T> : IQueryable<T>, IAsyncEnumerable<T>
             return $"/* KSQL変換エラー: {ex.Message} */";
         }
     }
+
+
 
     public EntityModel GetEntityModel()
     {
