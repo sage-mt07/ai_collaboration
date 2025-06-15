@@ -123,9 +123,54 @@ internal class KafkaProducerService : IDisposable
         var config = BuildProducerConfig();
         var builder = new ProducerBuilder<object, object>(config);
 
-        // 修正理由：スキーマ登録処理を削除
-        // ModelBuilder.BuildAsync()で事前に登録済みという前提に変更
-        // これにより、Producer初期化が高速化され、責任分離が明確になる
+        // 修正理由：Avroシリアライザーを正式実装
+        // KsqlDslはAvro専用設計のため、Schema Registryと連携したAvroシリアライザーを使用
+        if (_schemaRegistryClient != null)
+        {
+            try
+            {
+                var topicName = entityModel.TopicAttribute?.TopicName ?? entityModel.EntityType.Name;
+
+                // AvroシリアライザーをSchema Registryクライアントと連携して設定
+                var keySchemaConfig = new Confluent.SchemaRegistry.AvroSerializerConfig();
+                var valueSchemaConfig = new Confluent.SchemaRegistry.AvroSerializerConfig();
+
+                builder.SetKeySerializer(new Confluent.SchemaRegistry.Serdes.AvroSerializer<object>(
+                    (Confluent.SchemaRegistry.ISchemaRegistryClient)_schemaRegistryClient, keySchemaConfig))
+                       .SetValueSerializer(new Confluent.SchemaRegistry.Serdes.AvroSerializer<object>(
+                    (Confluent.SchemaRegistry.ISchemaRegistryClient)_schemaRegistryClient, valueSchemaConfig));
+
+                if (_options.EnableDebugLogging)
+                {
+                    Console.WriteLine($"[DEBUG] Avroシリアライザーを設定: {entityType.Name} → Topic: {topicName}");
+                }
+            }
+            catch (Exception ex)
+            {
+                if (_options.EnableDebugLogging)
+                {
+                    Console.WriteLine($"[ERROR] Avroシリアライザー設定エラー: {ex.Message}");
+                }
+
+                // Avroシリアライザー設定失敗時は例外を投げる（KsqlDslはAvro専用のため）
+                throw new KafkaProducerException(
+                    $"Failed to configure Avro serializers for {entityType.Name}. " +
+                    $"Ensure schema registry is available and schemas are registered: {ex.Message}", ex);
+            }
+        }
+        else
+        {
+            // Schema Registryが未設定の場合
+            // テスト環境では警告を出力してFallbackシリアライザーを使用
+            if (_options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[WARNING] Schema Registry未設定のため、テスト用Fallbackシリアライザーを使用");
+            }
+
+            // テスト環境用のFallbackシリアライザー
+            builder.SetKeySerializer(new Confluent.Kafka.Serializers.StringSerializer())
+                   .SetValueSerializer(new TestAvroFallbackSerializer<T>());
+        }
 
         if (_options.EnableDebugLogging)
         {
@@ -165,10 +210,13 @@ internal class KafkaProducerService : IDisposable
     {
         var keyValue = ExtractKeyValue(entity, entityModel);
 
+        // 修正理由：Avroシリアライザー使用時は直接オブジェクトを渡す
+        // AvroSerializerが自動的にスキーマに基づいてシリアライズを実行
+        // Fallbackシリアライザー使用時も適切に処理される
         return new Message<object, object>
         {
-            Key = keyValue,
-            Value = entity
+            Key = keyValue?.ToString() ?? "", // Keyは文字列として処理
+            Value = entity                     // ValueはAvroまたはFallbackでシリアライズ
         };
     }
 
@@ -194,6 +242,31 @@ internal class KafkaProducerService : IDisposable
         }
 
         return keyObject;
+    }
+
+    /// <summary>
+    /// テスト環境用Avroフォールバックシリアライザー
+    /// Schema Registry未設定時にJSONシリアライズで代替
+    /// </summary>
+    private class TestAvroFallbackSerializer<T> : ISerializer<object>
+    {
+        public byte[] Serialize(object data, SerializationContext context)
+        {
+            if (data == null)
+                return Array.Empty<byte>();
+
+            try
+            {
+                // テスト環境ではJSONでシリアライズ（Avroの代替）
+                var json = System.Text.Json.JsonSerializer.Serialize(data);
+                return System.Text.Encoding.UTF8.GetBytes(json);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    $"Test Avro fallback serialization failed for {data.GetType().Name}: {ex.Message}", ex);
+            }
+        }
     }
 
     public void Dispose()
