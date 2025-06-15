@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -11,6 +11,7 @@ namespace KsqlDsl.SchemaRegistry;
 
 /// <summary>
 /// Generates Avro schemas from C# POCO types, respecting KafkaIgnore attributes
+/// C# 8.0 Nullable Reference Types完全対応版
 /// </summary>
 public static class SchemaGenerator
 {
@@ -189,7 +190,7 @@ public static class SchemaGenerator
             throw new ArgumentException("Topic name cannot be null or empty", nameof(topicName));
 
         var keySchema = GenerateKeySchema<TKey>();
-        
+
         // For value schema, use custom naming based on topic name
         var valueType = typeof(TValue);
         var valueOptions = new SchemaGenerationOptions
@@ -198,7 +199,7 @@ public static class SchemaGenerator
             Namespace = valueType.Namespace ?? "KsqlDsl.Generated"
         };
         var valueSchema = GenerateSchema(valueType, valueOptions);
-        
+
         return (keySchema, valueSchema);
     }
 
@@ -240,12 +241,8 @@ public static class SchemaGenerator
     /// <returns>Avro type definition</returns>
     private static object MapToAvroType(PropertyInfo property)
     {
-        var propertyType = property.PropertyType;
-        var underlyingType = Nullable.GetUnderlyingType(propertyType);
-        var isNullable = underlyingType != null;
-        var actualType = underlyingType ?? propertyType;
-
-        var avroType = GetAvroType(actualType, property);
+        var isNullable = IsNullableProperty(property);
+        var avroType = GetAvroType(property);
 
         // Handle nullable types by creating a union with null
         if (isNullable)
@@ -257,15 +254,17 @@ public static class SchemaGenerator
     }
 
     /// <summary>
-    /// Gets the basic Avro type for a C# type
+    /// Gets the basic Avro type for a C# property
     /// </summary>
-    /// <param name="type">The C# type</param>
     /// <param name="property">The property (for attribute analysis)</param>
     /// <returns>Avro type definition</returns>
-    private static object GetAvroType(Type type, PropertyInfo property)
+    private static object GetAvroType(PropertyInfo property)
     {
+        var propertyType = property.PropertyType;
+        var underlyingType = Nullable.GetUnderlyingType(propertyType) ?? propertyType;
+
         // Handle decimal with precision
-        if (type == typeof(decimal))
+        if (underlyingType == typeof(decimal))
         {
             var decimalAttr = property.GetCustomAttribute<DecimalPrecisionAttribute>();
             if (decimalAttr != null)
@@ -288,7 +287,7 @@ public static class SchemaGenerator
         }
 
         // Handle DateTime types
-        if (type == typeof(DateTime) || type == typeof(DateTimeOffset))
+        if (underlyingType == typeof(DateTime) || underlyingType == typeof(DateTimeOffset))
         {
             return new
             {
@@ -298,7 +297,7 @@ public static class SchemaGenerator
         }
 
         // Handle Guid
-        if (type == typeof(Guid))
+        if (underlyingType == typeof(Guid))
         {
             return new
             {
@@ -308,7 +307,7 @@ public static class SchemaGenerator
         }
 
         // Handle basic types
-        return type switch
+        return underlyingType switch
         {
             Type t when t == typeof(bool) => "boolean",
             Type t when t == typeof(int) => "int",
@@ -322,6 +321,43 @@ public static class SchemaGenerator
             Type t when t == typeof(byte) => "int", // Avro doesn't have byte, use int
             _ => "string" // Default fallback
         };
+    }
+
+    /// <summary>
+    /// ✅ 修正版：C# 8.0 Nullable Reference Typesに完全対応したnullable判定
+    /// task_attribute.mdの要件「C#標準nullable型でnull許容」に準拠
+    /// </summary>
+    /// <param name="property">The property to check</param>
+    /// <returns>True if nullable, false otherwise</returns>
+    private static bool IsNullableProperty(PropertyInfo property)
+    {
+        var propertyType = property.PropertyType;
+
+        // 1. Nullable value types (int?, decimal?, bool?, etc.)
+        if (Nullable.GetUnderlyingType(propertyType) != null)
+            return true;
+
+        // 2. Value types are non-nullable by default
+        if (propertyType.IsValueType)
+            return false;
+
+        // 3. For reference types, check nullable context using NullabilityInfoContext (C# 8.0+)
+        try
+        {
+            var nullabilityContext = new NullabilityInfoContext();
+            var nullabilityInfo = nullabilityContext.Create(property);
+
+            // WriteState indicates if the property can be assigned null
+            // ReadState indicates if the property can return null
+            return nullabilityInfo.WriteState == NullabilityState.Nullable ||
+                   nullabilityInfo.ReadState == NullabilityState.Nullable;
+        }
+        catch
+        {
+            // Fallback: if NullabilityInfoContext fails, assume reference types are nullable
+            // This provides backward compatibility for cases where nullable context is not available
+            return !propertyType.IsValueType;
+        }
     }
 
     /// <summary>
@@ -372,27 +408,6 @@ public static class SchemaGenerator
     }
 
     /// <summary>
-    /// Checks if a property is nullable
-    /// </summary>
-    /// <param name="property">The property to check</param>
-    /// <returns>True if nullable, false otherwise</returns>
-    private static bool IsNullableProperty(PropertyInfo property)
-    {
-        // Check for Nullable<T>
-        if (Nullable.GetUnderlyingType(property.PropertyType) != null)
-            return true;
-
-        // Check for reference types (except string which we treat as non-nullable by default)
-        if (!property.PropertyType.IsValueType && property.PropertyType != typeof(string))
-            return true;
-
-        // Check for nullable reference type annotations (C# 8+)
-        var nullableContext = new NullabilityInfoContext();
-        var nullabilityInfo = nullableContext.Create(property);
-        return nullabilityInfo.WriteState == NullabilityState.Nullable;
-    }
-
-    /// <summary>
     /// Gets documentation for a property from XML comments or attributes
     /// </summary>
     /// <param name="property">The property</param>
@@ -434,7 +449,7 @@ public static class SchemaGenerator
     }
 
     /// <summary>
-    /// Validates that the generated schema is valid Avro (FIXED VERSION)
+    /// Validates that the generated schema is valid Avro
     /// </summary>
     /// <param name="schema">The schema JSON to validate</param>
     /// <returns>True if valid, false otherwise</returns>
@@ -457,13 +472,13 @@ public static class SchemaGenerator
                     return false;
 
                 var typeValue = typeElement.GetString();
-                
+
                 // For record types, must have "name" property
                 if (typeValue == "record")
                 {
                     if (!root.TryGetProperty("name", out var nameElement))
                         return false;
-                    
+
                     var nameValue = nameElement.GetString();
                     if (string.IsNullOrEmpty(nameValue))
                         return false;
