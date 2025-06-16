@@ -123,34 +123,43 @@ internal class KafkaProducerService : IDisposable
         var config = BuildProducerConfig();
         var builder = new ProducerBuilder<object, object>(config);
 
-        // 修正理由：KsqlDslはAvro専用設計のため、Avro以外は使用しない
         if (_schemaRegistryClient != null)
         {
             try
             {
                 var topicName = entityModel.TopicAttribute?.TopicName ?? entityModel.EntityType.Name;
 
-                // 修正：Confluent専用のSchemaRegistryClientを直接作成
                 var confluentSchemaRegistryConfig = new Confluent.SchemaRegistry.SchemaRegistryConfig
                 {
                     Url = _options.SchemaRegistryUrl ?? "http://localhost:8081"
                 };
 
-                // Confluent AvroシリアライザーでSchema Registryクライアント作成
                 var confluentClient = new Confluent.SchemaRegistry.CachedSchemaRegistryClient(confluentSchemaRegistryConfig);
 
-                // 修正：Avro専用設計に従い、AvroSerializerのみを使用
-                builder.SetKeySerializer(new Confluent.SchemaRegistry.Serdes.AvroSerializer<object>(confluentClient))
-                       .SetValueSerializer(new Confluent.SchemaRegistry.Serdes.AvroSerializer<object>(confluentClient));
+                // 修正：Key型を動的に決定
+                var keyType = DetermineKeyType(entityModel);
+
+                // 修正：パラメータ型を明示してメソッドを取得
+                var keySerializerType = typeof(Confluent.SchemaRegistry.Serdes.AvroSerializer<>).MakeGenericType(keyType);
+                var keySerializerInstance = Activator.CreateInstance(keySerializerType, confluentClient, null);
+
+                var valueSerializerType = typeof(Confluent.SchemaRegistry.Serdes.AvroSerializer<>).MakeGenericType(typeof(T));
+                var valueSerializerInstance = Activator.CreateInstance(valueSerializerType, confluentClient, null);
+
+                // 修正：パラメータ型を明示してメソッドを取得
+                var builderType = builder.GetType();
+                var keySerializerInterfaceType = typeof(ISerializer<>).MakeGenericType(keyType);
+                var valueSerializerInterfaceType = typeof(ISerializer<>).MakeGenericType(typeof(T));
+
+                var setKeyMethod = builderType.GetMethod("SetKeySerializer", new[] { keySerializerInterfaceType });
+                var setValueMethod = builderType.GetMethod("SetValueSerializer", new[] { valueSerializerInterfaceType });
+
+                setKeyMethod.Invoke(builder, new[] { keySerializerInstance });
+                setValueMethod.Invoke(builder, new[] { valueSerializerInstance });
 
                 if (_options.EnableDebugLogging)
                 {
-                    Console.WriteLine($"[DEBUG] Confluent Avroシリアライザーを設定: {entityType.Name} → Topic: {topicName}");
-                }
-
-                if (_options.EnableDebugLogging)
-                {
-                    Console.WriteLine($"[DEBUG] Confluent Avroシリアライザーを設定: {entityType.Name} → Topic: {topicName}");
+                    Console.WriteLine($"[DEBUG] Confluent Avroシリアライザーを設定: Key={keyType.Name}, Value={entityType.Name} → Topic: {topicName}");
                 }
             }
             catch (Exception ex)
@@ -160,7 +169,6 @@ internal class KafkaProducerService : IDisposable
                     Console.WriteLine($"[ERROR] Confluent Avroシリアライザー設定エラー: {ex.Message}");
                 }
 
-                // Avroシリアライザー設定失敗時は例外を投げる（KsqlDslはAvro専用のため）
                 throw new KafkaProducerException(
                     $"Failed to configure Confluent Avro serializers for {entityType.Name}. " +
                     $"KsqlDsl requires Avro serialization. Ensure Schema Registry is available and accessible: {ex.Message}", ex);
@@ -168,13 +176,11 @@ internal class KafkaProducerService : IDisposable
         }
         else
         {
-            // Schema Registryが未設定の場合はエラー（KsqlDslはAvro専用のため）
             if (_options.EnableDebugLogging)
             {
                 Console.WriteLine($"[ERROR] Schema Registry未設定: KsqlDslはAvro専用設計のため、Schema Registryが必須です");
             }
 
-            // KsqlDslはAvro専用設計のため、Schema Registry未設定時は例外をスロー
             throw new KafkaProducerException(
                 $"Schema Registry configuration is required for {entityType.Name}. " +
                 $"KsqlDsl is designed exclusively for Avro serialization. " +
@@ -192,6 +198,24 @@ internal class KafkaProducerService : IDisposable
 
         return producer;
     }
+
+    // Key型決定メソッド
+    private Type DetermineKeyType(EntityModel entityModel)
+    {
+        if (entityModel.KeyProperties.Length == 0)
+        {
+            return typeof(string); // デフォルトキー
+        }
+
+        if (entityModel.KeyProperties.Length == 1)
+        {
+            return entityModel.KeyProperties[0].PropertyType;
+        }
+
+        // 複合キーの場合はDictionaryとして扱う
+        return typeof(Dictionary<string, object>);
+    }
+
 
 
     private ProducerConfig BuildProducerConfig()
@@ -220,13 +244,11 @@ internal class KafkaProducerService : IDisposable
     {
         var keyValue = ExtractKeyValue(entity, entityModel);
 
-        // 修正理由：Avroシリアライザー使用時は直接オブジェクトを渡す
-        // AvroSerializerが自動的にスキーマに基づいてシリアライズを実行
-        // Fallbackシリアライザー使用時も適切に処理される
+        // 修正：Key値の型変換を削除し、元の型のまま使用
         return new Message<object, object>
         {
-            Key = keyValue?.ToString() ?? "", // Keyは文字列として処理
-            Value = entity                     // ValueはAvroまたはFallbackでシリアライズ
+            Key = keyValue ?? "", // 型変換なし、nullの場合のみ空文字
+            Value = entity        // ValueはAvroでシリアライズ
         };
     }
 
