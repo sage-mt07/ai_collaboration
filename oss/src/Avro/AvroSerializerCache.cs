@@ -5,6 +5,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using ConfluentSchemaRegistry = Confluent.SchemaRegistry;
 
 namespace KsqlDsl.Avro
 {
@@ -27,7 +28,7 @@ namespace KsqlDsl.Avro
             _logger = logger;
         }
 
-        public ISerializer<object> GetOrCreateSerializer<T>(SerializerType type, int schemaId, Func<ISerializer<object>> factory)
+        public virtual ISerializer<object> GetOrCreateSerializer<T>(SerializerType type, int schemaId, Func<ISerializer<object>> factory)
         {
             var key = new AvroSerializerCacheKey(typeof(T), type, schemaId);
             _lastAccess = DateTime.UtcNow;
@@ -36,17 +37,17 @@ namespace KsqlDsl.Avro
             if (_serializers.TryGetValue(key, out var serializer))
             {
                 Interlocked.Increment(ref _totalHits);
-                RecordHit<T>(type, isSerializer: true);
+                RecordHit(typeof(T), type, true);
                 return serializer;
             }
 
-            RecordMiss<T>(type, isSerializer: true);
+            RecordMiss(typeof(T), type, true);
             var newSerializer = factory();
             _serializers[key] = newSerializer;
             return newSerializer;
         }
 
-        public IDeserializer<object> GetOrCreateDeserializer<T>(SerializerType type, int schemaId, Func<IDeserializer<object>> factory)
+        public virtual IDeserializer<object> GetOrCreateDeserializer<T>(SerializerType type, int schemaId, Func<IDeserializer<object>> factory)
         {
             var key = new AvroSerializerCacheKey(typeof(T), type, schemaId);
             _lastAccess = DateTime.UtcNow;
@@ -55,11 +56,11 @@ namespace KsqlDsl.Avro
             if (_deserializers.TryGetValue(key, out var deserializer))
             {
                 Interlocked.Increment(ref _totalHits);
-                RecordHit<T>(type, isSerializer: false);
+                RecordHit(typeof(T), type, false);
                 return deserializer;
             }
 
-            RecordMiss<T>(type, isSerializer: false);
+            RecordMiss(typeof(T), type, false);
             var newDeserializer = factory();
             _deserializers[key] = newDeserializer;
             return newDeserializer;
@@ -176,7 +177,6 @@ namespace KsqlDsl.Avro
                 EntityStats = GetAllEntityStatuses().Values.ToList()
             };
 
-            // ヘルスチェック
             if (stats.HitRate < 0.7)
             {
                 report.HealthLevel = CacheHealthLevel.Critical;
@@ -202,7 +202,6 @@ namespace KsqlDsl.Avro
                 report.HealthLevel = CacheHealthLevel.Healthy;
             }
 
-            // エンティティ別チェック
             foreach (var entityStatus in report.EntityStats)
             {
                 if (entityStatus.OverallHitRate < 0.5)
@@ -221,45 +220,49 @@ namespace KsqlDsl.Avro
             return report;
         }
 
-        private void RecordHit<T>(SerializerType type, bool isSerializer)
+        private void RecordHit(Type entityType, SerializerType type, bool isSerializer)
         {
-            var entityType = typeof(T);
-            var status = _entityStats.GetOrAdd(entityType, _ => new EntityCacheStatus { EntityType = entityType });
+            var status = GetEntityCacheStatus(entityType);
 
-            if (isSerializer)
+            lock (status)
             {
-                if (type == SerializerType.Key)
-                    Interlocked.Increment(ref status.KeySerializerHits);
+                if (isSerializer)
+                {
+                    if (type == SerializerType.Key)
+                        status.KeySerializerHits++;
+                    else
+                        status.ValueSerializerHits++;
+                }
                 else
-                    Interlocked.Increment(ref status.ValueSerializerHits);
-            }
-            else
-            {
-                if (type == SerializerType.Key)
-                    Interlocked.Increment(ref status.KeyDeserializerHits);
-                else
-                    Interlocked.Increment(ref status.ValueDeserializerHits);
+                {
+                    if (type == SerializerType.Key)
+                        status.KeyDeserializerHits++;
+                    else
+                        status.ValueDeserializerHits++;
+                }
             }
         }
 
-        private void RecordMiss<T>(SerializerType type, bool isSerializer)
+        private void RecordMiss(Type entityType, SerializerType type, bool isSerializer)
         {
-            var entityType = typeof(T);
-            var status = _entityStats.GetOrAdd(entityType, _ => new EntityCacheStatus { EntityType = entityType });
+            var status = GetEntityCacheStatus(entityType);
 
-            if (isSerializer)
+            lock (status)
             {
-                if (type == SerializerType.Key)
-                    Interlocked.Increment(ref status.KeySerializerMisses);
+                if (isSerializer)
+                {
+                    if (type == SerializerType.Key)
+                        status.KeySerializerMisses++;
+                    else
+                        status.ValueSerializerMisses++;
+                }
                 else
-                    Interlocked.Increment(ref status.ValueSerializerMisses);
-            }
-            else
-            {
-                if (type == SerializerType.Key)
-                    Interlocked.Increment(ref status.KeyDeserializerMisses);
-                else
-                    Interlocked.Increment(ref status.ValueDeserializerMisses);
+                {
+                    if (type == SerializerType.Key)
+                        status.KeyDeserializerMisses++;
+                    else
+                        status.ValueDeserializerMisses++;
+                }
             }
         }
 
@@ -286,6 +289,23 @@ namespace KsqlDsl.Avro
         public int GetCachedItemCount()
         {
             return _serializers.Count + _deserializers.Count;
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _serializers.Clear();
+                _deserializers.Clear();
+                _entityStats.Clear();
+                _schemas.Clear();
+            }
         }
     }
 }

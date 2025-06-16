@@ -140,7 +140,7 @@ namespace KsqlDsl.Avro
         {
             if (underlyingType == typeof(decimal))
             {
-                var decimalAttr = property.GetCustomAttribute<Ksql.EntityFrameworkCore.Modeling.DecimalPrecisionAttribute>();
+                var decimalAttr = property.GetCustomAttribute<DecimalPrecisionAttribute>();
                 return new
                 {
                     type = "bytes",
@@ -185,9 +185,9 @@ namespace KsqlDsl.Avro
         {
             try
             {
-                var nullabilityContext = new System.Diagnostics.CodeAnalysis.NullabilityInfoContext();
+                var nullabilityContext = new System.Reflection.NullabilityInfoContext();
                 var nullabilityInfo = nullabilityContext.Create(property);
-                return nullabilityInfo.WriteState == System.Diagnostics.CodeAnalysis.NullabilityState.Nullable;
+                return nullabilityInfo.WriteState == System.Reflection.NullabilityState.Nullable;
             }
             catch
             {

@@ -326,6 +326,7 @@ public static class SchemaGenerator
     /// <summary>
     /// ✅ 修正版：C# 8.0 Nullable Reference Typesに完全対応したnullable判定
     /// task_attribute.mdの要件「C#標準nullable型でnull許容」に準拠
+    /// 修正理由：正しい名前空間 System.Reflection を使用
     /// </summary>
     /// <param name="property">The property to check</param>
     /// <returns>True if nullable, false otherwise</returns>
@@ -344,6 +345,7 @@ public static class SchemaGenerator
         // 3. For reference types, check nullable context using NullabilityInfoContext (C# 8.0+)
         try
         {
+            // 修正：正しい名前空間で NullabilityInfoContext を使用
             var nullabilityContext = new NullabilityInfoContext();
             var nullabilityInfo = nullabilityContext.Create(property);
 

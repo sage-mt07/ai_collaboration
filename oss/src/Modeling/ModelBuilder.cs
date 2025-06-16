@@ -325,21 +325,30 @@ public class ModelBuilder
     {
         var propertyType = property.PropertyType;
 
+        // 1. Nullable value types (int?, decimal?, bool?, etc.)
         if (Nullable.GetUnderlyingType(propertyType) != null)
             return true;
 
+        // 2. Value types are non-nullable by default
         if (propertyType.IsValueType)
             return false;
 
+        // 3. For reference types, check nullable context using NullabilityInfoContext (C# 8.0+)
         try
         {
+            // 修正：正しい名前空間で NullabilityInfoContext を使用
             var nullabilityContext = new NullabilityInfoContext();
             var nullabilityInfo = nullabilityContext.Create(property);
+
+            // WriteState indicates if the property can be assigned null
+            // ReadState indicates if the property can return null
             return nullabilityInfo.WriteState == NullabilityState.Nullable ||
                    nullabilityInfo.ReadState == NullabilityState.Nullable;
         }
         catch
         {
+            // Fallback: if NullabilityInfoContext fails, assume reference types are nullable
+            // This provides backward compatibility for cases where nullable context is not available
             return !propertyType.IsValueType;
         }
     }

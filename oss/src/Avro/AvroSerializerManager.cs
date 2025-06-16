@@ -2,22 +2,22 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Confluent.Kafka;
-using Confluent.SchemaRegistry;
 using Confluent.SchemaRegistry.Serdes;
 using KsqlDsl.Modeling;
 using KsqlDsl.SchemaRegistry;
 using Microsoft.Extensions.Logging;
+using ConfluentSchemaRegistry = Confluent.SchemaRegistry;
 
 namespace KsqlDsl.Avro
 {
     public class AvroSerializerManager
     {
-        private readonly ISchemaRegistryClient _schemaRegistryClient;
+        private readonly ConfluentSchemaRegistry.ISchemaRegistryClient _schemaRegistryClient;
         private readonly AvroSerializerCache _cache;
         private readonly ILogger<AvroSerializerManager>? _logger;
 
         public AvroSerializerManager(
-            ISchemaRegistryClient schemaRegistryClient,
+            ConfluentSchemaRegistry.ISchemaRegistryClient schemaRegistryClient,
             AvroSerializerCache cache,
             ILogger<AvroSerializerManager>? logger = null)
         {
@@ -54,7 +54,7 @@ namespace KsqlDsl.Avro
             var keyType = KeyExtractor.DetermineKeyType(entityModel);
             var keySchema = SchemaGenerator.GenerateKeySchema(keyType);
 
-            return await _schemaRegistryClient.RegisterKeySchemaAsync(topicName, keySchema);
+            return await RegisterKeySchemaAsync(topicName, keySchema);
         }
 
         private async Task<int> RegisterOrGetValueSchemaIdAsync<T>(EntityModel entityModel)
@@ -62,7 +62,21 @@ namespace KsqlDsl.Avro
             var topicName = entityModel.TopicAttribute?.TopicName ?? entityModel.EntityType.Name;
             var valueSchema = SchemaGenerator.GenerateSchema<T>();
 
-            return await _schemaRegistryClient.RegisterValueSchemaAsync(topicName, valueSchema);
+            return await RegisterValueSchemaAsync(topicName, valueSchema);
+        }
+
+        private async Task<int> RegisterKeySchemaAsync(string topicName, string keySchema)
+        {
+            var subject = $"{topicName}-key";
+            var schema = new ConfluentSchemaRegistry.Schema(keySchema, ConfluentSchemaRegistry.SchemaType.Avro);
+            return await _schemaRegistryClient.RegisterSchemaAsync(subject, schema);
+        }
+
+        private async Task<int> RegisterValueSchemaAsync(string topicName, string valueSchema)
+        {
+            var subject = $"{topicName}-value";
+            var schema = new ConfluentSchemaRegistry.Schema(valueSchema, ConfluentSchemaRegistry.SchemaType.Avro);
+            return await _schemaRegistryClient.RegisterSchemaAsync(subject, schema);
         }
 
         private ISerializer<object> CreateKeySerializer<T>(EntityModel entityModel, int schemaId)
@@ -73,13 +87,11 @@ namespace KsqlDsl.Avro
             {
                 if (KeyExtractor.IsCompositeKey(entityModel))
                 {
-                    // 複合キーの場合はDictionaryシリアライザーを使用
-                    return CreateDictionarySerializer(schemaId);
+                    return new StringKeySerializer();
                 }
                 else
                 {
-                    // 単一キーの場合
-                    return CreatePrimitiveSerializer(keyType, schemaId);
+                    return new StringKeySerializer();
                 }
             });
         }
@@ -88,31 +100,15 @@ namespace KsqlDsl.Avro
         {
             return _cache.GetOrCreateSerializer<T>(SerializerType.Value, schemaId, () =>
             {
-                // Confluent Avro Serializerを使用
-                var config = new AvroSerializerConfig
-                {
-                    AutoRegisterSchemas = false // スキーマは事前登録済み
-                };
-
-                var avroSerializer = new AvroSerializer<T>(_schemaRegistryClient, config);
-                return new SerializerWrapper<T>(avroSerializer);
+                return new SimpleAvroSerializer<T>(_schemaRegistryClient);
             });
         }
 
         private IDeserializer<object> CreateKeyDeserializer<T>(EntityModel entityModel, int schemaId)
         {
-            var keyType = KeyExtractor.DetermineKeyType(entityModel);
-
             return _cache.GetOrCreateDeserializer<T>(SerializerType.Key, schemaId, () =>
             {
-                if (KeyExtractor.IsCompositeKey(entityModel))
-                {
-                    return CreateDictionaryDeserializer(schemaId);
-                }
-                else
-                {
-                    return CreatePrimitiveDeserializer(keyType, schemaId);
-                }
+                return new StringKeyDeserializer();
             });
         }
 
@@ -120,125 +116,63 @@ namespace KsqlDsl.Avro
         {
             return _cache.GetOrCreateDeserializer<T>(SerializerType.Value, schemaId, () =>
             {
-                var avroDeserializer = new AvroDeserializer<T>(_schemaRegistryClient);
-                return new DeserializerWrapper<T>(avroDeserializer);
+                return new SimpleAvroDeserializer<T>(_schemaRegistryClient);
             });
-        }
-
-        private ISerializer<object> CreatePrimitiveSerializer(Type keyType, int schemaId)
-        {
-            // 型に応じてプリミティブシリアライザーを作成
-            if (keyType == typeof(string))
-                return new PrimitiveSerializer<string>();
-            if (keyType == typeof(int))
-                return new PrimitiveSerializer<int>();
-            if (keyType == typeof(long))
-                return new PrimitiveSerializer<long>();
-            if (keyType == typeof(Guid))
-                return new PrimitiveSerializer<Guid>();
-
-            throw new NotSupportedException($"Key type {keyType.Name} is not supported");
-        }
-
-        private IDeserializer<object> CreatePrimitiveDeserializer(Type keyType, int schemaId)
-        {
-            if (keyType == typeof(string))
-                return new PrimitiveDeserializer<string>();
-            if (keyType == typeof(int))
-                return new PrimitiveDeserializer<int>();
-            if (keyType == typeof(long))
-                return new PrimitiveDeserializer<long>();
-            if (keyType == typeof(Guid))
-                return new PrimitiveDeserializer<Guid>();
-
-            throw new NotSupportedException($"Key type {keyType.Name} is not supported");
-        }
-
-        private ISerializer<object> CreateDictionarySerializer(int schemaId)
-        {
-            var config = new AvroSerializerConfig { AutoRegisterSchemas = false };
-            var avroSerializer = new AvroSerializer<Dictionary<string, object>>(_schemaRegistryClient, config);
-            return new SerializerWrapper<Dictionary<string, object>>(avroSerializer);
-        }
-
-        private IDeserializer<object> CreateDictionaryDeserializer(int schemaId)
-        {
-            var avroDeserializer = new AvroDeserializer<Dictionary<string, object>>(_schemaRegistryClient);
-            return new DeserializerWrapper<Dictionary<string, object>>(avroDeserializer);
         }
     }
 
-    // ラッパークラス - 型安全性を保つ
-    internal class SerializerWrapper<T> : ISerializer<object>
+    internal class StringKeySerializer : ISerializer<object>
     {
-        private readonly ISerializer<T> _inner;
-
-        public SerializerWrapper(ISerializer<T> inner)
+        public byte[] Serialize(object data, SerializationContext context)
         {
-            _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+            return System.Text.Encoding.UTF8.GetBytes(data?.ToString() ?? "");
+        }
+    }
+
+    internal class StringKeyDeserializer : IDeserializer<object>
+    {
+        public object Deserialize(ReadOnlySpan<byte> data, bool isNull, SerializationContext context)
+        {
+            if (isNull) return "";
+            return System.Text.Encoding.UTF8.GetString(data);
+        }
+    }
+
+    internal class SimpleAvroSerializer<T> : ISerializer<object>
+    {
+        private readonly ConfluentSchemaRegistry.ISchemaRegistryClient _client;
+
+        public SimpleAvroSerializer(ConfluentSchemaRegistry.ISchemaRegistryClient client)
+        {
+            _client = client;
         }
 
         public byte[] Serialize(object data, SerializationContext context)
         {
             if (data is T typedData)
-                return _inner.Serialize(typedData, context);
-
-            throw new InvalidOperationException($"Expected type {typeof(T).Name}, got {data?.GetType().Name ?? "null"}");
+            {
+                var config = new AvroSerializerConfig { AutoRegisterSchemas = false };
+                var serializer = new AvroSerializer<T>(_client, config);
+                return serializer.SerializeAsync(typedData, context).GetAwaiter().GetResult();
+            }
+            throw new InvalidOperationException($"Expected type {typeof(T).Name}");
         }
     }
 
-    internal class DeserializerWrapper<T> : IDeserializer<object>
+    internal class SimpleAvroDeserializer<T> : IDeserializer<object>
     {
-        private readonly IDeserializer<T> _inner;
+        private readonly ConfluentSchemaRegistry.ISchemaRegistryClient _client;
 
-        public DeserializerWrapper(IDeserializer<T> inner)
+        public SimpleAvroDeserializer(ConfluentSchemaRegistry.ISchemaRegistryClient client)
         {
-            _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+            _client = client;
         }
 
         public object Deserialize(ReadOnlySpan<byte> data, bool isNull, SerializationContext context)
         {
-            var result = _inner.Deserialize(data, isNull, context);
+            var deserializer = new AvroDeserializer<T>(_client);
+            var result = deserializer.DeserializeAsync(data.ToArray(), isNull, context).GetAwaiter().GetResult();
             return result!;
         }
     }
-
-    // プリミティブ型用シリアライザー
-    internal class PrimitiveSerializer<T> : ISerializer<object>
-    {
-        public byte[] Serialize(object data, SerializationContext context)
-        {
-            if (data is T value)
-            {
-                if (typeof(T) == typeof(string))
-                    return System.Text.Encoding.UTF8.GetBytes(value.ToString()!);
-                if (typeof(T) == typeof(int))
-                    return BitConverter.GetBytes((int)(object)value);
-                if (typeof(T) == typeof(long))
-                    return BitConverter.GetBytes((long)(object)value);
-                if (typeof(T) == typeof(Guid))
-                    return ((Guid)(object)value).ToByteArray();
-            }
-
-            throw new InvalidOperationException($"Cannot serialize {data?.GetType().Name} as {typeof(T).Name}");
-        }
-    }
-
-    internal class PrimitiveDeserializer<T> : IDeserializer<object>
-    {
-        public object Deserialize(ReadOnlySpan<byte> data, bool isNull, SerializationContext context)
-        {
-            if (isNull) return default(T)!;
-
-            if (typeof(T) == typeof(string))
-                return System.Text.Encoding.UTF8.GetString(data);
-            if (typeof(T) == typeof(int))
-                return BitConverter.ToInt32(data);
-            if (typeof(T) == typeof(long))
-                return BitConverter.ToInt64(data);
-            if (typeof(T) == typeof(Guid))
-                return new Guid(data);
-
-            throw new InvalidOperationException($"Cannot deserialize to {typeof(T).Name}");
-        }
-    }
+}

@@ -3,24 +3,24 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using Confluent.Kafka;
-using Confluent.SchemaRegistry;
 using Confluent.SchemaRegistry.Serdes;
 using KsqlDsl.Modeling;
 using KsqlDsl.SchemaRegistry;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using ConfluentSchemaRegistry = Confluent.SchemaRegistry;
 
 namespace KsqlDsl.Avro
 {
     public class EnhancedAvroSerializerManager
     {
-        private readonly ISchemaRegistryClient _schemaRegistryClient;
+        private readonly ConfluentSchemaRegistry.ISchemaRegistryClient _schemaRegistryClient;
         private readonly PerformanceMonitoringAvroCache _cache;
         private readonly ResilientAvroSerializerManager _resilientManager;
         private readonly ILogger<EnhancedAvroSerializerManager>? _logger;
 
         public EnhancedAvroSerializerManager(
-            ISchemaRegistryClient schemaRegistryClient,
+            ConfluentSchemaRegistry.ISchemaRegistryClient schemaRegistryClient,
             PerformanceMonitoringAvroCache cache,
             ResilientAvroSerializerManager resilientManager,
             ILogger<EnhancedAvroSerializerManager>? logger = null)
@@ -110,9 +110,7 @@ namespace KsqlDsl.Avro
         {
             return _cache.GetOrCreateSerializer<T>(SerializerType.Value, schemaId, () =>
             {
-                var config = new AvroSerializerConfig { AutoRegisterSchemas = false };
-                var avroSerializer = new AvroSerializer<T>(_schemaRegistryClient, config);
-                return new SerializerWrapper<T>(avroSerializer);
+                return new EnhancedAvroSerializer<T>(_schemaRegistryClient);
             });
         }
 
@@ -136,21 +134,20 @@ namespace KsqlDsl.Avro
         {
             return _cache.GetOrCreateDeserializer<T>(SerializerType.Value, schemaId, () =>
             {
-                var avroDeserializer = new AvroDeserializer<T>(_schemaRegistryClient);
-                return new DeserializerWrapper<T>(avroDeserializer);
+                return new EnhancedAvroDeserializer<T>(_schemaRegistryClient);
             });
         }
 
         private ISerializer<object> CreatePrimitiveKeySerializer(Type keyType, int schemaId)
         {
             if (keyType == typeof(string))
-                return new AvroStringKeySerializer();
+                return new EnhancedStringKeySerializer();
             if (keyType == typeof(int))
-                return new AvroIntKeySerializer();
+                return new EnhancedIntKeySerializer();
             if (keyType == typeof(long))
-                return new AvroLongKeySerializer();
+                return new EnhancedLongKeySerializer();
             if (keyType == typeof(Guid))
-                return new AvroGuidKeySerializer();
+                return new EnhancedGuidKeySerializer();
 
             throw new NotSupportedException($"Key type {keyType.Name} is not supported");
         }
@@ -158,32 +155,67 @@ namespace KsqlDsl.Avro
         private IDeserializer<object> CreatePrimitiveKeyDeserializer(Type keyType, int schemaId)
         {
             if (keyType == typeof(string))
-                return new AvroStringKeyDeserializer();
+                return new EnhancedStringKeyDeserializer();
             if (keyType == typeof(int))
-                return new AvroIntKeyDeserializer();
+                return new EnhancedIntKeyDeserializer();
             if (keyType == typeof(long))
-                return new AvroLongKeyDeserializer();
+                return new EnhancedLongKeyDeserializer();
             if (keyType == typeof(Guid))
-                return new AvroGuidKeyDeserializer();
+                return new EnhancedGuidKeyDeserializer();
 
             throw new NotSupportedException($"Key type {keyType.Name} is not supported");
         }
 
         private ISerializer<object> CreateCompositeKeySerializer(int schemaId)
         {
-            var config = new AvroSerializerConfig { AutoRegisterSchemas = false };
-            var avroSerializer = new AvroSerializer<Dictionary<string, object>>(_schemaRegistryClient, config);
-            return new SerializerWrapper<Dictionary<string, object>>(avroSerializer);
+            return new EnhancedCompositeKeySerializer(_schemaRegistryClient);
         }
 
         private IDeserializer<object> CreateCompositeKeyDeserializer(int schemaId)
         {
-            var avroDeserializer = new AvroDeserializer<Dictionary<string, object>>(_schemaRegistryClient);
-            return new DeserializerWrapper<Dictionary<string, object>>(avroDeserializer);
+            return new EnhancedCompositeKeyDeserializer(_schemaRegistryClient);
         }
     }
 
-    internal class AvroStringKeySerializer : ISerializer<object>
+    internal class EnhancedAvroSerializer<T> : ISerializer<object>
+    {
+        private readonly ConfluentSchemaRegistry.ISchemaRegistryClient _client;
+
+        public EnhancedAvroSerializer(ConfluentSchemaRegistry.ISchemaRegistryClient client)
+        {
+            _client = client;
+        }
+
+        public byte[] Serialize(object data, SerializationContext context)
+        {
+            if (data is T typedData)
+            {
+                var config = new AvroSerializerConfig { AutoRegisterSchemas = false };
+                var serializer = new AvroSerializer<T>(_client, config);
+                return serializer.SerializeAsync(typedData, context).GetAwaiter().GetResult();
+            }
+            throw new InvalidOperationException($"Expected type {typeof(T).Name}");
+        }
+    }
+
+    internal class EnhancedAvroDeserializer<T> : IDeserializer<object>
+    {
+        private readonly ConfluentSchemaRegistry.ISchemaRegistryClient _client;
+
+        public EnhancedAvroDeserializer(ConfluentSchemaRegistry.ISchemaRegistryClient client)
+        {
+            _client = client;
+        }
+
+        public object Deserialize(ReadOnlySpan<byte> data, bool isNull, SerializationContext context)
+        {
+            var deserializer = new AvroDeserializer<T>(_client);
+            var result = deserializer.DeserializeAsync(data.ToArray(), isNull, context).GetAwaiter().GetResult();
+            return result!;
+        }
+    }
+
+    internal class EnhancedStringKeySerializer : ISerializer<object>
     {
         public byte[] Serialize(object data, SerializationContext context)
         {
@@ -193,16 +225,16 @@ namespace KsqlDsl.Avro
         }
     }
 
-    internal class AvroStringKeyDeserializer : IDeserializer<object>
+    internal class EnhancedStringKeyDeserializer : IDeserializer<object>
     {
         public object Deserialize(ReadOnlySpan<byte> data, bool isNull, SerializationContext context)
         {
-            if (isNull) return null!;
+            if (isNull) return string.Empty;
             return System.Text.Encoding.UTF8.GetString(data);
         }
     }
 
-    internal class AvroIntKeySerializer : ISerializer<object>
+    internal class EnhancedIntKeySerializer : ISerializer<object>
     {
         public byte[] Serialize(object data, SerializationContext context)
         {
@@ -212,7 +244,7 @@ namespace KsqlDsl.Avro
         }
     }
 
-    internal class AvroIntKeyDeserializer : IDeserializer<object>
+    internal class EnhancedIntKeyDeserializer : IDeserializer<object>
     {
         public object Deserialize(ReadOnlySpan<byte> data, bool isNull, SerializationContext context)
         {
@@ -221,7 +253,7 @@ namespace KsqlDsl.Avro
         }
     }
 
-    internal class AvroLongKeySerializer : ISerializer<object>
+    internal class EnhancedLongKeySerializer : ISerializer<object>
     {
         public byte[] Serialize(object data, SerializationContext context)
         {
@@ -231,7 +263,7 @@ namespace KsqlDsl.Avro
         }
     }
 
-    internal class AvroLongKeyDeserializer : IDeserializer<object>
+    internal class EnhancedLongKeyDeserializer : IDeserializer<object>
     {
         public object Deserialize(ReadOnlySpan<byte> data, bool isNull, SerializationContext context)
         {
@@ -240,7 +272,7 @@ namespace KsqlDsl.Avro
         }
     }
 
-    internal class AvroGuidKeySerializer : ISerializer<object>
+    internal class EnhancedGuidKeySerializer : ISerializer<object>
     {
         public byte[] Serialize(object data, SerializationContext context)
         {
@@ -250,12 +282,51 @@ namespace KsqlDsl.Avro
         }
     }
 
-    internal class AvroGuidKeyDeserializer : IDeserializer<object>
+    internal class EnhancedGuidKeyDeserializer : IDeserializer<object>
     {
         public object Deserialize(ReadOnlySpan<byte> data, bool isNull, SerializationContext context)
         {
             if (isNull) return Guid.Empty;
             return new Guid(data);
+        }
+    }
+
+    internal class EnhancedCompositeKeySerializer : ISerializer<object>
+    {
+        private readonly ConfluentSchemaRegistry.ISchemaRegistryClient _client;
+
+        public EnhancedCompositeKeySerializer(ConfluentSchemaRegistry.ISchemaRegistryClient client)
+        {
+            _client = client;
+        }
+
+        public byte[] Serialize(object data, SerializationContext context)
+        {
+            if (data is Dictionary<string, object> dict)
+            {
+                var config = new AvroSerializerConfig { AutoRegisterSchemas = false };
+                var serializer = new AvroSerializer<Dictionary<string, object>>(_client, config);
+                return serializer.SerializeAsync(dict, context).GetAwaiter().GetResult();
+            }
+            throw new InvalidOperationException("Expected Dictionary<string, object> for composite key");
+        }
+    }
+
+    internal class EnhancedCompositeKeyDeserializer : IDeserializer<object>
+    {
+        private readonly ConfluentSchemaRegistry.ISchemaRegistryClient _client;
+
+        public EnhancedCompositeKeyDeserializer(ConfluentSchemaRegistry.ISchemaRegistryClient client)
+        {
+            _client = client;
+        }
+
+        public object Deserialize(ReadOnlySpan<byte> data, bool isNull, SerializationContext context)
+        {
+            if (isNull) return new Dictionary<string, object>();
+            var deserializer = new AvroDeserializer<Dictionary<string, object>>(_client);
+            var result = deserializer.DeserializeAsync(data.ToArray(), isNull, context).GetAwaiter().GetResult();
+            return result!;
         }
     }
 }

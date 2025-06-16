@@ -1,4 +1,4 @@
-namespace Ksql.EntityFrameworkCore.Modeling;
+namespace KsqlDsl.Modeling;
 
 using System;
 
