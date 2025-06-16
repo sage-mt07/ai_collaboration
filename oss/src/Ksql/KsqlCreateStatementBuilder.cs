@@ -5,7 +5,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
-using Ksql.EntityFrameworkCore.Modeling;
+
 using KsqlDsl.Metadata;
 using KsqlDsl.Modeling;
 

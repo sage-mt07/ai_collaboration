@@ -68,7 +68,7 @@ namespace KsqlDsl.Avro
             throw new InvalidOperationException($"Schema registration failed after {policy.MaxAttempts} attempts: {subject}");
         }
 
-        public async Task<AvroSchemaInfo> GetSchemaWithRetryAsync(string subject, int version)
+        public async Task<KsqlDsl.Avro.AvroSchemaInfo> GetSchemaWithRetryAsync(string subject, int version)
         {
             var policy = _retrySettings.SchemaRetrieval;
             var attempt = 1;
@@ -84,7 +84,19 @@ namespace KsqlDsl.Avro
                     _logger.LogDebug("Schema retrieval succeeded: {Subject} v{Version} (Attempt: {Attempt}, Duration: {Duration}ms)",
                         subject, version, attempt, stopwatch.ElapsedMilliseconds);
 
-                    return schemaInfo;
+                    // 修正理由：CS0029エラー対応 - KsqlDsl.SchemaRegistry.AvroSchemaInfo を KsqlDsl.Avro.AvroSchemaInfo に変換
+                    return new KsqlDsl.Avro.AvroSchemaInfo
+                    {
+                        EntityType = typeof(object), // デフォルト値
+                        Type = SerializerType.Value, // デフォルト値
+                        SchemaId = schemaInfo.Id,
+                        Subject = schemaInfo.Subject,
+                        RegisteredAt = DateTime.UtcNow,
+                        LastUsed = DateTime.UtcNow,
+                        SchemaJson = schemaInfo.AvroSchema,
+                        Version = schemaInfo.Version,
+                        UsageCount = 0
+                    };
                 }
                 catch (Exception ex) when (ShouldRetry(ex, policy, attempt))
                 {

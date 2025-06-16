@@ -1,4 +1,4 @@
-﻿using Ksql.EntityFrameworkCore;
+﻿
 using KsqlDsl.Modeling;
 using System;
 using System.Collections.Generic;

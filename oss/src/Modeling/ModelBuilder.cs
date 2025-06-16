@@ -1,4 +1,4 @@
-﻿using Ksql.EntityFrameworkCore.Modeling;
+﻿
 using KsqlDsl.Attributes;
 using KsqlDsl.Validation;
 using KsqlDsl.SchemaRegistry;

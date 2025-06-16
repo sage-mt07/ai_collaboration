@@ -65,9 +65,13 @@ namespace KsqlDsl.Avro
                 {
                     RecordSlowOperation(entityTypeName, "GetOrCreateSerializer", type.ToString(), stopwatch.Elapsed);
 
-                    AvroLogMessages.SlowSerializerCreation(
-                        _logger, entityTypeName, type.ToString(), schemaId,
-                        stopwatch.ElapsedMilliseconds, _thresholds.SlowSerializerCreationMs);
+                    // 修正理由：CS8604エラー対応 - _loggerがnullの場合はログ出力をスキップ
+                    if (_logger != null)
+                    {
+                        AvroLogMessages.SlowSerializerCreation(
+                            _logger, entityTypeName, type.ToString(), schemaId,
+                            stopwatch.ElapsedMilliseconds, _thresholds.SlowSerializerCreationMs);
+                    }
                 }
 
                 // メトリクス記録
@@ -112,9 +116,13 @@ namespace KsqlDsl.Avro
                 {
                     RecordSlowOperation(entityTypeName, "GetOrCreateDeserializer", type.ToString(), stopwatch.Elapsed);
 
-                    AvroLogMessages.SlowSerializerCreation(
-                        _logger, entityTypeName, $"Deserializer-{type}", schemaId,
-                        stopwatch.ElapsedMilliseconds, _thresholds.SlowSerializerCreationMs);
+                    // 修正理由：CS8604エラー対応 - _loggerがnullの場合はログ出力をスキップ
+                    if (_logger != null)
+                    {
+                        AvroLogMessages.SlowSerializerCreation(
+                            _logger, entityTypeName, $"Deserializer-{type}", schemaId,
+                            stopwatch.ElapsedMilliseconds, _thresholds.SlowSerializerCreationMs);
+                    }
                 }
 
                 // メトリクス記録

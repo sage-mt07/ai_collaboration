@@ -167,11 +167,25 @@ namespace KsqlDsl.Avro
             }
         }
 
-        private async Task<AvroSchemaInfo?> GetLatestSchemaAsync(string subject)
+        private async Task<KsqlDsl.Avro.AvroSchemaInfo?> GetLatestSchemaAsync(string subject)
         {
             try
             {
-                return await _schemaRegistryClient.GetLatestSchemaAsync(subject);
+                var schemaInfo = await _schemaRegistryClient.GetLatestSchemaAsync(subject);
+
+                // 修正理由：CS0029エラー対応 - KsqlDsl.SchemaRegistry.AvroSchemaInfo を KsqlDsl.Avro.AvroSchemaInfo に変換
+                return new KsqlDsl.Avro.AvroSchemaInfo
+                {
+                    EntityType = typeof(object), // デフォルト値
+                    Type = SerializerType.Value, // デフォルト値
+                    SchemaId = schemaInfo.Id,
+                    Subject = schemaInfo.Subject,
+                    RegisteredAt = DateTime.UtcNow,
+                    LastUsed = DateTime.UtcNow,
+                    SchemaJson = schemaInfo.AvroSchema,
+                    Version = schemaInfo.Version,
+                    UsageCount = 0
+                };
             }
             catch
             {

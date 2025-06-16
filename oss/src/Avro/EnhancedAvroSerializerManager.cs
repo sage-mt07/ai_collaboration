@@ -90,9 +90,9 @@ namespace KsqlDsl.Avro
             return (keySchemaId, valueSchemaId);
         }
 
-        private async Task<ISerializer<object>> CreateKeySerializerAsync<T>(EntityModel entityModel, int schemaId)
+        private Task<ISerializer<object>> CreateKeySerializerAsync<T>(EntityModel entityModel, int schemaId)
         {
-            return _cache.GetOrCreateSerializer<T>(SerializerType.Key, schemaId, () =>
+            return Task.FromResult(_cache.GetOrCreateSerializer<T>(SerializerType.Key, schemaId, () =>
             {
                 if (KeyExtractor.IsCompositeKey(entityModel))
                 {
@@ -103,20 +103,20 @@ namespace KsqlDsl.Avro
                     var keyType = KeyExtractor.DetermineKeyType(entityModel);
                     return CreatePrimitiveKeySerializer(keyType, schemaId);
                 }
-            });
+            }));
         }
 
-        private async Task<ISerializer<object>> CreateValueSerializerAsync<T>(int schemaId)
+        private Task<ISerializer<object>> CreateValueSerializerAsync<T>(int schemaId)
         {
-            return _cache.GetOrCreateSerializer<T>(SerializerType.Value, schemaId, () =>
+            return Task.FromResult(_cache.GetOrCreateSerializer<T>(SerializerType.Value, schemaId, () =>
             {
                 return new EnhancedAvroSerializer<T>(_schemaRegistryClient);
-            });
+            }));
         }
 
-        private async Task<IDeserializer<object>> CreateKeyDeserializerAsync<T>(EntityModel entityModel, int schemaId)
+        private Task<IDeserializer<object>> CreateKeyDeserializerAsync<T>(EntityModel entityModel, int schemaId)
         {
-            return _cache.GetOrCreateDeserializer<T>(SerializerType.Key, schemaId, () =>
+            return Task.FromResult(_cache.GetOrCreateDeserializer<T>(SerializerType.Key, schemaId, () =>
             {
                 if (KeyExtractor.IsCompositeKey(entityModel))
                 {
@@ -127,15 +127,15 @@ namespace KsqlDsl.Avro
                     var keyType = KeyExtractor.DetermineKeyType(entityModel);
                     return CreatePrimitiveKeyDeserializer(keyType, schemaId);
                 }
-            });
+            }));
         }
 
-        private async Task<IDeserializer<object>> CreateValueDeserializerAsync<T>(int schemaId)
+        private Task<IDeserializer<object>> CreateValueDeserializerAsync<T>(int schemaId)
         {
-            return _cache.GetOrCreateDeserializer<T>(SerializerType.Value, schemaId, () =>
+            return Task.FromResult(_cache.GetOrCreateDeserializer<T>(SerializerType.Value, schemaId, () =>
             {
                 return new EnhancedAvroDeserializer<T>(_schemaRegistryClient);
-            });
+            }));
         }
 
         private ISerializer<object> CreatePrimitiveKeySerializer(Type keyType, int schemaId)
