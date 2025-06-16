@@ -1,15 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Collections.Generic;
 
 namespace KsqlDsl.SchemaRegistry;
 
 
-/// <summary>
-/// Avro schema representation
-/// </summary>
+
 public class AvroSchema
 {
     public string Type { get; set; } = string.Empty;

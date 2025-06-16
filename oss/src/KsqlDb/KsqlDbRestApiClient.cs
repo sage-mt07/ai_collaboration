@@ -32,9 +32,6 @@ internal class KsqlDbRestApiClient : IDisposable
         };
     }
 
-    /// <summary>
-    /// KSQL クエリを実行してPull Query結果を取得
-    /// </summary>
     public async Task<KsqlQueryResponse> ExecuteQueryAsync(string ksqlQuery, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(ksqlQuery))
@@ -76,9 +73,6 @@ internal class KsqlDbRestApiClient : IDisposable
         }
     }
 
-    /// <summary>
-    /// KSQL ステートメントを実行（CREATE, INSERT等）
-    /// </summary>
     public async Task<KsqlStatementResponse> ExecuteStatementAsync(string ksqlStatement, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(ksqlStatement))
@@ -110,10 +104,6 @@ internal class KsqlDbRestApiClient : IDisposable
             throw new KsqlDbException($"Failed to connect to ksqlDB: {ex.Message}", ex);
         }
     }
-    /// <summary>
-    /// KSQL Push Query（ストリーミング）を実行
-    /// 修正理由：task_eventset.txt「Push型でストリーム受信」に準拠
-    /// </summary>
     public async Task ExecuteStreamingQueryAsync(
         string ksqlQuery,
         Func<Dictionary<string, object>, Task> onRow,

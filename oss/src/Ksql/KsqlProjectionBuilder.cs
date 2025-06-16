@@ -4,18 +4,10 @@ using System.Text;
 
 namespace KsqlDsl.Ksql;
 
-/// <summary>
-/// Builder for generating KSQL SELECT projection clauses from LINQ expressions
-/// </summary>
 internal class KsqlProjectionBuilder : ExpressionVisitor
 {
     private readonly StringBuilder _sb = new();
 
-    /// <summary>
-    /// Builds a KSQL SELECT clause from a LINQ expression
-    /// </summary>
-    /// <param name="expression">The expression to build from</param>
-    /// <returns>KSQL SELECT clause</returns>
     public string Build(Expression expression)
     {
         _sb.Clear();
@@ -23,11 +15,6 @@ internal class KsqlProjectionBuilder : ExpressionVisitor
         return _sb.Length > 0 ? "SELECT " + _sb.ToString().TrimEnd(',', ' ') : "SELECT *";
     }
 
-    /// <summary>
-    /// Handles anonymous type projections: new { o.Id, o.Name }
-    /// </summary>
-    /// <param name="node">The NewExpression to process</param>
-    /// <returns>The processed expression</returns>
     protected override Expression VisitNew(NewExpression node)
     {
         for (int i = 0; i < node.Arguments.Count; i++)
@@ -76,46 +63,24 @@ internal class KsqlProjectionBuilder : ExpressionVisitor
         }
         return node;
     }
-
-    /// <summary>
-    /// Handles direct member access: o => o.PropertyName
-    /// </summary>
-    /// <param name="node">The MemberExpression to process</param>
-    /// <returns>The processed expression</returns>
     protected override Expression VisitMember(MemberExpression node)
     {
         _sb.Append(node.Member.Name);
         return node;
     }
 
-    /// <summary>
-    /// Handles parameter expressions: o => *
-    /// </summary>
-    /// <param name="node">The ParameterExpression to process</param>
-    /// <returns>The processed expression</returns>
     protected override Expression VisitParameter(ParameterExpression node)
     {
         _sb.Append("*");
         return node;
     }
 
-    /// <summary>
-    /// Handles UnaryExpression nodes, particularly Convert operations that occur
-    /// when anonymous types are cast to object in LINQ expressions.
-    /// </summary>
-    /// <param name="node">The UnaryExpression to process</param>
-    /// <returns>The result of visiting the operand</returns>
     protected override Expression VisitUnary(UnaryExpression node)
     {
         // Skip Convert operations and process the inner operand directly
         return Visit(node.Operand);
     }
 
-    /// <summary>
-    /// Handles constant expressions
-    /// </summary>
-    /// <param name="node">The ConstantExpression to process</param>
-    /// <returns>The processed expression</returns>
     protected override Expression VisitConstant(ConstantExpression node)
     {
         if (node.Type == typeof(string))
@@ -127,11 +92,6 @@ internal class KsqlProjectionBuilder : ExpressionVisitor
         return node;
     }
 
-    /// <summary>
-    /// Handles method call expressions (for functions in projections)
-    /// </summary>
-    /// <param name="node">The MethodCallExpression to process</param>
-    /// <returns>The processed expression</returns>
     protected override Expression VisitMethodCall(MethodCallExpression node)
     {
         var methodName = node.Method.Name.ToUpper();
@@ -187,11 +147,6 @@ internal class KsqlProjectionBuilder : ExpressionVisitor
         return node;
     }
 
-    /// <summary>
-    /// Handles binary expressions (for calculations in projections)
-    /// </summary>
-    /// <param name="node">The BinaryExpression to process</param>
-    /// <returns>The processed expression</returns>
     protected override Expression VisitBinary(BinaryExpression node)
     {
         _sb.Append("(");
@@ -202,11 +157,6 @@ internal class KsqlProjectionBuilder : ExpressionVisitor
         return node;
     }
 
-    /// <summary>
-    /// Maps .NET binary operators to KSQL operators
-    /// </summary>
-    /// <param name="nodeType">The expression type</param>
-    /// <returns>KSQL operator string</returns>
     private static string GetSqlOperator(ExpressionType nodeType) => nodeType switch
     {
         ExpressionType.Add => "+",

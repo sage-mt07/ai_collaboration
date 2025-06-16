@@ -1,34 +1,19 @@
 ﻿using KsqlDsl.Attributes;
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace KsqlDsl.Validation;
 
-/// <summary>
-/// POCO属性主導型KafkaContextのバリデーションサービス
-/// </summary>
 public class ValidationService
 {
     private readonly ValidationMode _mode;
 
-    /// <summary>
-    /// 初期化
-    /// </summary>
-    /// <param name="mode">バリデーションモード</param>
     public ValidationService(ValidationMode mode = ValidationMode.Strict)
     {
         _mode = mode;
     }
 
-    /// <summary>
-    /// POCOエンティティタイプのバリデーション実行
-    /// </summary>
-    /// <param name="entityType">バリデーション対象のPOCOタイプ</param>
-    /// <returns>バリデーション結果</returns>
     public ValidationResult ValidateEntity(Type entityType)
     {
         if (entityType == null)
@@ -48,9 +33,6 @@ public class ValidationService
         return result;
     }
 
-    /// <summary>
-    /// [Topic]属性のバリデーション
-    /// </summary>
     private void ValidateTopicAttribute(Type entityType, ValidationResult result)
     {
         var topicAttribute = entityType.GetCustomAttribute<TopicAttribute>();
@@ -99,9 +81,6 @@ public class ValidationService
         }
     }
 
-    /// <summary>
-    /// [Key]属性のバリデーション
-    /// </summary>
     private void ValidateKeyAttributes(Type entityType, ValidationResult result)
     {
         var properties = entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
@@ -145,19 +124,11 @@ public class ValidationService
             }
         }
     }
-    /// <summary>
-    /// 現在のバリデーションモードを取得
-    /// 修正理由：ModelBuilderでのスキーマ突合バリデーション用（CS1061エラー対応）
-    /// </summary>
-    /// <returns>現在のバリデーションモード</returns>
     public ValidationMode GetValidationMode()
     {
         return _mode;
     }
 
-    /// <summary>
-    /// プロパティ属性のバリデーション
-    /// </summary>
     private void ValidatePropertyAttributes(Type entityType, ValidationResult result)
     {
         var properties = entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
@@ -192,10 +163,6 @@ public class ValidationService
         }
     }
 
-    /// <summary>
-    /// バリデーション結果のコンソール出力
-    /// </summary>
-    /// <param name="result">バリデーション結果</param>
     public static void PrintValidationResult(ValidationResult result)
     {
         if (result.IsValid && !result.HasIssues)

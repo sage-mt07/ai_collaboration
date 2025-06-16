@@ -1,15 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿using System.Collections.Generic;
 using System.Linq.Expressions;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace KsqlDsl.Metadata;
 
-/// <summary>
-/// Analyzer for inferring STREAM vs TABLE based on LINQ expression patterns
-/// </summary>
+
 internal class StreamTableInferenceAnalyzer : ExpressionVisitor
 {
     private bool _hasGroupBy = false;

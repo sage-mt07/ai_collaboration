@@ -1,15 +1,12 @@
 ﻿using Confluent.Kafka;
-using Confluent.SchemaRegistry;
-using Confluent.SchemaRegistry.Serdes;
+using KsqlDsl.KsqlDb;
 using KsqlDsl.Modeling;
 using KsqlDsl.Options;
-using KsqlDsl.KsqlDb;
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Text.Json;
 
 namespace KsqlDsl;
 

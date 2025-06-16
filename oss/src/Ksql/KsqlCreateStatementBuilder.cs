@@ -1,30 +1,16 @@
-﻿using System;
+﻿using KsqlDsl.Metadata;
+using KsqlDsl.Modeling;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
-
-using KsqlDsl.Metadata;
-using KsqlDsl.Modeling;
 
 namespace KsqlDsl.Ksql;
 
-/// <summary>
-/// Builder for generating KSQL CREATE STREAM/TABLE DDL statements from C# POCO types
-/// </summary>
 internal static class KsqlCreateStatementBuilder
 {
-    /// <summary>
-    /// Builds a KSQL CREATE STREAM or CREATE TABLE statement from a C# type
-    /// </summary>
-    /// <param name="entityType">The C# type to generate DDL for</param>
-    /// <param name="type">Whether to generate STREAM or TABLE</param>
-    /// <param name="options">Optional WITH clause configuration</param>
-    /// <returns>Complete KSQL CREATE statement</returns>
-    /// <exception cref="ArgumentNullException">When entityType is null</exception>
-    /// <exception cref="ArgumentException">When type is invalid</exception>
+
     public static string BuildCreateStatement(Type entityType, StreamTableType type, KsqlWithOptions? options = null)
     {
         if (entityType == null)
@@ -41,14 +27,6 @@ internal static class KsqlCreateStatementBuilder
         return $"CREATE {keyword} {tableName} ({columns}){withClause}";
     }
 
-    /// <summary>
-    /// Builds a KSQL CREATE STREAM or CREATE TABLE statement with automatic type inference from LINQ expression
-    /// </summary>
-    /// <param name="entityType">The C# type to generate DDL for</param>
-    /// <param name="linqExpression">LINQ expression to analyze for STREAM/TABLE inference</param>
-    /// <param name="options">Optional WITH clause configuration</param>
-    /// <returns>Complete KSQL CREATE statement with inferred type</returns>
-    /// <exception cref="ArgumentNullException">When entityType or linqExpression is null</exception>
     public static string BuildCreateStatementWithInference(Type entityType, Expression linqExpression, KsqlWithOptions? options = null)
     {
         if (entityType == null)
@@ -61,13 +39,6 @@ internal static class KsqlCreateStatementBuilder
 
         return BuildCreateStatement(entityType, inferenceResult.InferredType, options);
     }
-
-    /// <summary>
-    /// Analyzes a LINQ expression to infer whether it should be a STREAM or TABLE
-    /// </summary>
-    /// <param name="linqExpression">LINQ expression to analyze</param>
-    /// <returns>Inference result with type and reasoning</returns>
-    /// <exception cref="ArgumentNullException">When linqExpression is null</exception>
     public static InferenceResult InferStreamTableType(Expression linqExpression)
     {
         if (linqExpression == null)
@@ -76,12 +47,6 @@ internal static class KsqlCreateStatementBuilder
         var analyzer = new StreamTableInferenceAnalyzer();
         return analyzer.AnalyzeExpression(linqExpression);
     }
-
-    /// <summary>
-    /// Builds column definitions from a C# type's properties, excluding properties marked with [KafkaIgnore]
-    /// </summary>
-    /// <param name="entityType">The C# type to analyze</param>
-    /// <returns>Comma-separated column definitions</returns>
     private static string BuildColumnDefinitions(Type entityType)
     {
         var properties = entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
@@ -103,21 +68,11 @@ internal static class KsqlCreateStatementBuilder
         return string.Join(", ", columnDefinitions);
     }
 
-    /// <summary>
-    /// Determines whether a property should be ignored based on the presence of [KafkaIgnore] attribute
-    /// </summary>
-    /// <param name="property">The property to check</param>
-    /// <returns>True if the property should be ignored, false otherwise</returns>
     private static bool ShouldIgnoreProperty(PropertyInfo property)
     {
         return property.GetCustomAttribute<KafkaIgnoreAttribute>() != null;
     }
 
-    /// <summary>
-    /// Gets all properties that should be included in the schema (not marked with [KafkaIgnore])
-    /// </summary>
-    /// <param name="entityType">The C# type to analyze</param>
-    /// <returns>Array of properties to include in schema</returns>
     public static PropertyInfo[] GetSchemaProperties(Type entityType)
     {
         if (entityType == null)
@@ -128,11 +83,6 @@ internal static class KsqlCreateStatementBuilder
             .ToArray();
     }
 
-    /// <summary>
-    /// Gets all properties that are marked with [KafkaIgnore]
-    /// </summary>
-    /// <param name="entityType">The C# type to analyze</param>
-    /// <returns>Array of ignored properties</returns>
     public static PropertyInfo[] GetIgnoredProperties(Type entityType)
     {
         if (entityType == null)
@@ -143,11 +93,6 @@ internal static class KsqlCreateStatementBuilder
             .ToArray();
     }
 
-    /// <summary>
-    /// Maps C# property types to KSQL types, considering custom attributes
-    /// </summary>
-    /// <param name="property">The property to analyze</param>
-    /// <returns>KSQL type string</returns>
     private static string GetKsqlType(PropertyInfo property)
     {
         var propertyType = property.PropertyType;

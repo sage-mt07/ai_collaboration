@@ -1,11 +1,10 @@
-using System;
-using System.Threading.Tasks;
 using KsqlDsl.Attributes;
 using KsqlDsl.Modeling;
 using KsqlDsl.Options;
 using KsqlDsl.Services;
-using KsqlDsl.SchemaRegistry;
 using KsqlDsl.Tests.SchemaRegistry;
+using System;
+using System.Threading.Tasks;
 using Xunit;
 
 namespace KsqlDsl.Tests

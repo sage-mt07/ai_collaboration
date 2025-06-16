@@ -1,6 +1,5 @@
 ﻿using KsqlDsl.Ksql;
 using System;
-using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
 
@@ -22,13 +21,6 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
     // 修正理由：外部フラグ制御方式に変更
     private bool _isPullQuery = false;
 
-    /// <summary>
-    /// LINQ式をKSQLクエリに変換（フラグ制御版）
-    /// </summary>
-    /// <param name="expression">LINQ式</param>
-    /// <param name="topicName">トピック名</param>
-    /// <param name="isPullQuery">Pull Queryフラグ（true: Pull Query, false: Push Query）</param>
-    /// <returns>KSQLクエリ文字列</returns>
     public string Translate(Expression expression, string topicName, bool isPullQuery = false)
     {
         _fromClause = topicName;
@@ -50,12 +42,6 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
         return BuildKsqlQuery();
     }
 
-    /// <summary>
-    /// 既存のTranslateメソッド（後方互換性のため保持）
-    /// </summary>
-    /// <param name="expression">LINQ式</param>
-    /// <param name="topicName">トピック名</param>
-    /// <returns>KSQLクエリ文字列</returns>
     public string Translate(Expression expression, string topicName)
     {
         return Translate(expression, topicName, isPullQuery: false);
@@ -281,18 +267,11 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
         return query.ToString();
     }
 
-    /// <summary>
-    /// クエリがPull QueryかPush Queryかを判定（外部フラグベース）
-    /// </summary>
-    /// <returns>Pull Queryの場合true、Push Queryの場合false</returns>
     public bool IsPullQuery()
     {
         return _isPullQuery;
     }
 
-    /// <summary>
-    /// 診断情報を取得（デバッグ用）
-    /// </summary>
     public string GetDiagnostics()
     {
         var diagnostics = new StringBuilder();

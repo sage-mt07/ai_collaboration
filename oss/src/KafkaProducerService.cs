@@ -1,13 +1,9 @@
 ﻿using Confluent.Kafka;
-using Confluent.SchemaRegistry;
-using Confluent.SchemaRegistry.Serdes;
 using KsqlDsl.Modeling;
 using KsqlDsl.Options;
-using KsqlDsl.Attributes;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 

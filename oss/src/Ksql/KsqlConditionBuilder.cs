@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace KsqlDsl.Ksql;
 
@@ -20,11 +18,6 @@ internal class KsqlConditionBuilder : ExpressionVisitor
         return "WHERE " + _sb.ToString();
     }
 
-    /// <summary>
-    /// Builds a condition without the "WHERE" prefix, useful for JOIN conditions
-    /// </summary>
-    /// <param name="expression">The expression to build</param>
-    /// <returns>The condition string without "WHERE" prefix</returns>
     public string BuildCondition(Expression expression)
     {
         _includeParameterPrefix = true;
@@ -77,11 +70,6 @@ internal class KsqlConditionBuilder : ExpressionVisitor
         return node;
     }
 
-    /// <summary>
-    /// Builds conditions for composite key comparisons from NewExpressions
-    /// </summary>
-    /// <param name="leftNew">Left side NewExpression (e.g., new { a.Id, a.Type })</param>
-    /// <param name="rightNew">Right side NewExpression (e.g., new { b.Id, b.Type })</param>
     private void BuildCompositeKeyCondition(NewExpression leftNew, NewExpression rightNew)
     {
         if (leftNew.Arguments.Count != rightNew.Arguments.Count)
@@ -122,12 +110,6 @@ internal class KsqlConditionBuilder : ExpressionVisitor
         }
     }
 
-    /// <summary>
-    /// Extracts member name from an expression, handling parameter prefixes
-    /// NOTE: Bool formatting is handled in VisitMember to avoid double formatting
-    /// </summary>
-    /// <param name="expression">The expression to extract from</param>
-    /// <returns>The member name with parameter prefix (e.g., "a.Id") when _includeParameterPrefix is true</returns>
     private string ExtractMemberName(Expression expression)
     {
         return expression switch

@@ -1,14 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Collections.Generic;
 
 namespace KsqlDsl.SchemaRegistry;
 
-/// <summary>
-/// Statistics about schema generation
-/// </summary>
 public class SchemaGenerationStats
 {
     public int TotalProperties { get; set; }

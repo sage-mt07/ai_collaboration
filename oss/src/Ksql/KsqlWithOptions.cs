@@ -1,14 +1,8 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace KsqlDsl.Ksql;
 
-/// <summary>
-/// Configuration options for KSQL CREATE statements WITH clause
-/// </summary>
 public class KsqlWithOptions
 {
     public string? TopicName { get; set; }
@@ -18,10 +12,6 @@ public class KsqlWithOptions
     public int? Replicas { get; set; }
     public Dictionary<string, string> AdditionalOptions { get; set; } = new();
 
-    /// <summary>
-    /// Builds the WITH clause string from the configured options
-    /// </summary>
-    /// <returns>WITH clause string or empty string if no options are set</returns>
     public string BuildWithClause()
     {
         var options = new List<string>();
@@ -54,12 +44,6 @@ public class KsqlWithOptions
         return options.Any() ? $" WITH ({string.Join(", ", options)})" : "";
     }
 
-    /// <summary>
-    /// Adds an additional option to the WITH clause
-    /// </summary>
-    /// <param name="key">Option key</param>
-    /// <param name="value">Option value</param>
-    /// <returns>This instance for method chaining</returns>
     public KsqlWithOptions AddOption(string key, string value)
     {
         if (!string.IsNullOrEmpty(key) && !string.IsNullOrEmpty(value))
@@ -69,11 +53,6 @@ public class KsqlWithOptions
         return this;
     }
 
-    /// <summary>
-    /// Removes an additional option from the WITH clause
-    /// </summary>
-    /// <param name="key">Option key to remove</param>
-    /// <returns>This instance for method chaining</returns>
     public KsqlWithOptions RemoveOption(string key)
     {
         if (!string.IsNullOrEmpty(key))
@@ -83,10 +62,6 @@ public class KsqlWithOptions
         return this;
     }
 
-    /// <summary>
-    /// Clears all additional options
-    /// </summary>
-    /// <returns>This instance for method chaining</returns>
     public KsqlWithOptions ClearAdditionalOptions()
     {
         AdditionalOptions.Clear();

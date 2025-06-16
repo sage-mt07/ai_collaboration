@@ -1,9 +1,8 @@
 // tests/AggregateFunctionTests.cs
+using KsqlDsl.Ksql;
 using System;
 using System.Linq;
 using System.Linq.Expressions;
-using KsqlDsl.Ksql;
-using KsqlDsl.Tests;
 using Xunit;
 
 namespace KsqlDsl.Tests

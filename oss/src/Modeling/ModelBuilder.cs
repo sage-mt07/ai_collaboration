@@ -1,15 +1,13 @@
 ﻿
 using KsqlDsl.Attributes;
-using KsqlDsl.Validation;
 using KsqlDsl.SchemaRegistry;
 using KsqlDsl.Services;
+using KsqlDsl.Validation;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Text;
 using System.Threading.Tasks;
-using System.Diagnostics.CodeAnalysis;
 
 namespace KsqlDsl.Modeling;
 

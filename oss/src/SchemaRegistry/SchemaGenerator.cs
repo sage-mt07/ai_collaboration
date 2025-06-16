@@ -9,27 +9,13 @@ using KsqlDsl.Modeling;
 
 namespace KsqlDsl.SchemaRegistry;
 
-/// <summary>
-/// Generates Avro schemas from C# POCO types, respecting KafkaIgnore attributes
-/// C# 8.0 Nullable Reference Types完全対応版
-/// </summary>
 public static class SchemaGenerator
 {
-    /// <summary>
-    /// Generates an Avro schema from a C# type
-    /// </summary>
-    /// <typeparam name="T">The type to generate schema for</typeparam>
-    /// <returns>Avro schema as JSON string</returns>
     public static string GenerateSchema<T>()
     {
         return GenerateSchema(typeof(T));
     }
 
-    /// <summary>
-    /// Generates an Avro schema from a C# type
-    /// </summary>
-    /// <param name="type">The type to generate schema for</param>
-    /// <returns>Avro schema as JSON string</returns>
     public static string GenerateSchema(Type type)
     {
         if (type == null)
@@ -52,12 +38,6 @@ public static class SchemaGenerator
         return JsonSerializer.Serialize(schema, options);
     }
 
-    /// <summary>
-    /// Generates schema with custom namespace
-    /// </summary>
-    /// <param name="type">The type to generate schema for</param>
-    /// <param name="namespaceName">Custom namespace for the schema</param>
-    /// <returns>Avro schema as JSON string</returns>
     public static string GenerateSchema(Type type, string namespaceName)
     {
         if (type == null)
@@ -82,12 +62,6 @@ public static class SchemaGenerator
         return JsonSerializer.Serialize(schema, options);
     }
 
-    /// <summary>
-    /// Generates schema with additional metadata
-    /// </summary>
-    /// <param name="type">The type to generate schema for</param>
-    /// <param name="options">Schema generation options</param>
-    /// <returns>Avro schema as JSON string</returns>
     public static string GenerateSchema(Type type, SchemaGenerationOptions options)
     {
         if (type == null)
@@ -113,21 +87,11 @@ public static class SchemaGenerator
         return JsonSerializer.Serialize(schema, jsonOptions);
     }
 
-    /// <summary>
-    /// Generates a key schema for the specified type
-    /// </summary>
-    /// <typeparam name="T">The key type</typeparam>
-    /// <returns>Avro key schema as JSON string</returns>
     public static string GenerateKeySchema<T>()
     {
         return GenerateKeySchema(typeof(T));
     }
 
-    /// <summary>
-    /// Generates a key schema for the specified type
-    /// </summary>
-    /// <param name="keyType">The key type</param>
-    /// <returns>Avro key schema as JSON string</returns>
     public static string GenerateKeySchema(Type keyType)
     {
         if (keyType == null)
@@ -164,12 +128,6 @@ public static class SchemaGenerator
         return JsonSerializer.Serialize(schema, options);
     }
 
-    /// <summary>
-    /// Generates both key and value schemas for a topic
-    /// </summary>
-    /// <typeparam name="TKey">The key type</typeparam>
-    /// <typeparam name="TValue">The value type</typeparam>
-    /// <returns>Tuple of (keySchema, valueSchema)</returns>
     public static (string keySchema, string valueSchema) GenerateTopicSchemas<TKey, TValue>()
     {
         var keySchema = GenerateKeySchema<TKey>();
@@ -177,13 +135,6 @@ public static class SchemaGenerator
         return (keySchema, valueSchema);
     }
 
-    /// <summary>
-    /// Generates both key and value schemas for a topic with custom naming
-    /// </summary>
-    /// <typeparam name="TKey">The key type</typeparam>
-    /// <typeparam name="TValue">The value type</typeparam>
-    /// <param name="topicName">The topic name for custom naming</param>
-    /// <returns>Tuple of (keySchema, valueSchema)</returns>
     public static (string keySchema, string valueSchema) GenerateTopicSchemas<TKey, TValue>(string topicName)
     {
         if (string.IsNullOrEmpty(topicName))
@@ -203,11 +154,6 @@ public static class SchemaGenerator
         return (keySchema, valueSchema);
     }
 
-    /// <summary>
-    /// Generates fields for the Avro schema, excluding properties marked with [KafkaIgnore]
-    /// </summary>
-    /// <param name="type">The type to analyze</param>
-    /// <returns>List of Avro field definitions</returns>
     private static List<AvroField> GenerateFields(Type type)
     {
         var properties = KsqlCreateStatementBuilder.GetSchemaProperties(type);
@@ -234,11 +180,6 @@ public static class SchemaGenerator
         return fields;
     }
 
-    /// <summary>
-    /// Maps C# property types to Avro types
-    /// </summary>
-    /// <param name="property">The property to map</param>
-    /// <returns>Avro type definition</returns>
     private static object MapToAvroType(PropertyInfo property)
     {
         var isNullable = IsNullableProperty(property);
@@ -253,11 +194,6 @@ public static class SchemaGenerator
         return avroType;
     }
 
-    /// <summary>
-    /// Gets the basic Avro type for a C# property
-    /// </summary>
-    /// <param name="property">The property (for attribute analysis)</param>
-    /// <returns>Avro type definition</returns>
     private static object GetAvroType(PropertyInfo property)
     {
         var propertyType = property.PropertyType;
@@ -323,13 +259,6 @@ public static class SchemaGenerator
         };
     }
 
-    /// <summary>
-    /// ✅ 修正版：C# 8.0 Nullable Reference Typesに完全対応したnullable判定
-    /// task_attribute.mdの要件「C#標準nullable型でnull許容」に準拠
-    /// 修正理由：正しい名前空間 System.Reflection を使用
-    /// </summary>
-    /// <param name="property">The property to check</param>
-    /// <returns>True if nullable, false otherwise</returns>
     private static bool IsNullableProperty(PropertyInfo property)
     {
         var propertyType = property.PropertyType;
@@ -362,11 +291,6 @@ public static class SchemaGenerator
         }
     }
 
-    /// <summary>
-    /// Checks if a type is a primitive type suitable for keys
-    /// </summary>
-    /// <param name="type">The type to check</param>
-    /// <returns>True if primitive, false otherwise</returns>
     private static bool IsPrimitiveType(Type type)
     {
         return type == typeof(string) ||
@@ -376,11 +300,6 @@ public static class SchemaGenerator
                type == typeof(byte[]);
     }
 
-    /// <summary>
-    /// Generates a primitive key schema
-    /// </summary>
-    /// <param name="primitiveType">The primitive type</param>
-    /// <returns>Avro primitive schema</returns>
     private static string GeneratePrimitiveKeySchema(Type primitiveType)
     {
         return primitiveType switch
@@ -398,11 +317,6 @@ public static class SchemaGenerator
         };
     }
 
-    /// <summary>
-    /// Generates a nullable primitive key schema
-    /// </summary>
-    /// <param name="primitiveType">The primitive type</param>
-    /// <returns>Avro nullable primitive schema</returns>
     private static string GenerateNullablePrimitiveKeySchema(Type primitiveType)
     {
         // 内部型のオブジェクト表現を直接作成
@@ -423,11 +337,6 @@ public static class SchemaGenerator
         return JsonSerializer.Serialize(unionArray);
     }
 
-    /// <summary>
-    /// Gets documentation for a property from XML comments or attributes
-    /// </summary>
-    /// <param name="property">The property</param>
-    /// <returns>Documentation string or null</returns>
     private static string? GetPropertyDocumentation(PropertyInfo property)
     {
         // Check for KafkaIgnore reason (shouldn't occur here, but safety check)
@@ -440,11 +349,6 @@ public static class SchemaGenerator
         return null;
     }
 
-    /// <summary>
-    /// Converts a string to PascalCase
-    /// </summary>
-    /// <param name="input">The input string</param>
-    /// <returns>PascalCase string</returns>
     private static string ToPascalCase(string input)
     {
         if (string.IsNullOrEmpty(input))
@@ -464,11 +368,6 @@ public static class SchemaGenerator
         return result;
     }
 
-    /// <summary>
-    /// Validates that the generated schema is valid Avro
-    /// </summary>
-    /// <param name="schema">The schema JSON to validate</param>
-    /// <returns>True if valid, false otherwise</returns>
     public static bool ValidateSchema(string schema)
     {
         if (string.IsNullOrEmpty(schema))
@@ -524,11 +423,6 @@ public static class SchemaGenerator
         }
     }
 
-    /// <summary>
-    /// Gets schema generation statistics
-    /// </summary>
-    /// <param name="type">The type to analyze</param>
-    /// <returns>Schema generation statistics</returns>
     public static SchemaGenerationStats GetGenerationStats(Type type)
     {
         if (type == null)

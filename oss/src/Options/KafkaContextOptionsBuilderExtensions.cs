@@ -1,6 +1,4 @@
 ﻿using KsqlDsl.SchemaRegistry;
-using KsqlDsl.SchemaRegistry.Implementation;
-using KsqlDsl.Services;
 using System;
 
 namespace KsqlDsl.Options;

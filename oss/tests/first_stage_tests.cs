@@ -1,9 +1,8 @@
-using System;
-using System.Linq;
 using KsqlDsl.Attributes;
 using KsqlDsl.Configuration;
 using KsqlDsl.Options;
 using KsqlDsl.Validation;
+using System;
 using Xunit;
 
 namespace KsqlDsl.Tests.FirstStage
