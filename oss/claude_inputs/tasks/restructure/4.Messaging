@@ -1,0 +1,103 @@
+🎯 任務：Kafka通信層の機能分離とモジュール再構成（Phase 3）
+
+🧠 背景：
+Communication名前空間（19ファイル）にProducer・Consumer・バス統合・ヘルス監視・設定が混在し、  
+構造的複雑性と責務不明瞭性が高い。これをMessaging専用モジュールへ機能別に分離し、  
+再利用性・テスタビリティ・スケーラビリティを飛躍的に向上させる。
+
+---
+
+📦 対象構造（現状）：
+
+- `KafkaProducerPool.cs` / `KafkaConsumerPool.cs`
+  - プール機能、インスタンス共有
+
+- `KafkaProducer.cs` / `KafkaConsumer.cs`
+  - Publish / Subscribe機能本体
+
+- `KafkaMessageBus.cs`
+  - Producer / Consumerの統合管理
+
+- `KafkaMessageBusOptions.cs`
+  - 各機能設定（監視含む、800行）
+
+- `KafkaMetricsLogger.cs`（バス内診断）
+
+---
+
+🧩 作業内容：
+
+✅ 1. 新構造配置
+
+src/Messaging/
+├── Producers/
+│ ├── Core/
+│ │ └── KafkaProducer.cs
+│ ├── Pool/
+│ │ └── ProducerPoolManager.cs
+│ └── Health/
+│ └── ProducerHealthChecker.cs
+├── Consumers/
+│ ├── Core/
+│ │ └── KafkaConsumer.cs
+│ ├── Pool/
+│ │ └── ConsumerPoolManager.cs
+│ └── Subscription/
+│ └── SubscriptionManager.cs
+├── Bus/
+│ ├── KafkaMessageBus.cs
+│ └── BusDiagnostics.cs
+├── Abstractions/
+│ ├── IKafkaProducer<T>.cs
+│ ├── IKafkaConsumer<T>.cs
+│ ├── ISubscriptionManager<T>.cs
+│ └── IMessageBusCoordinator.cs
+
+✅ 2. 分離の具体内容
+
+- **Producer系**
+  - `KafkaProducer.cs` → `Producers/Core/` へ
+  - `KafkaProducerPool.cs` → `Producers/Pool/` に統合し `IPoolManager<TKey, T>` 準拠
+
+- **Consumer系**
+  - `KafkaConsumer.cs` → `Consumers/Core/` へ
+  - `KafkaConsumerPool.cs` → `Consumers/Pool/` へ
+  - 購読制御ロジック → `Subscription/SubscriptionManager.cs` として独立
+
+- **統合バス**
+  - `KafkaMessageBus.cs` → `Bus/` へ
+  - `BusDiagnostics.cs` を新設し、監視/統計の分離
+  - `KafkaMessageBusOptions.cs` の設定系は別途 `Configuration/` に移動（Phase 4）
+
+---
+
+📘 設計ガイドライン：
+
+- 名前空間は `KsqlDsl.Messaging.Xxx`
+- **Producer** / **Consumer** はそれぞれ単体でも利用可能とすること
+- `KafkaMessageBus` は **IMessageBusCoordinator** の実装とし、Producer/Consumerの注入構成をとる
+
+---
+
+🧪 テスト：
+
+- 各Producer/Consumer/Busに対するテストは `tests/Messaging/` 以下に再配置
+- Pool系のテストは、キャッシュ動作・切断復旧・例外再送などを網羅
+- Bus系の統合テストでは、`IMessagingScenario.cs` によるシナリオ駆動型で整備可能（必要に応じて追加指示）
+
+---
+
+📄 文書出力（必要時）：
+
+- `docs/Messaging/responsibilities.md`
+- `docs/Messaging/interfaces.md`
+- `docs/Messaging/design_guidelines.md`
+
+---
+
+⚠️ 注意：
+
+- `KafkaMessageBusOptions.cs` の設定移動は次フェーズ（Phase 4）で行う
+- 監視ロジックはすでに `Monitoring/` に移動済みのものと統合されることを想定して構成すること
+- `IKafkaProducer<T>` などは `Abstractions/` に統一してインターフェースとして公開
+

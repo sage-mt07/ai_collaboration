@@ -1,0 +1,80 @@
+📝 修正対象ファイル（15個）
+1. スキーマ生成統合
+📝 src/Serialization/Avro/Core/UnifiedSchemaGenerator.cs
+   → 削除3クラスの機能統合、重複除去、単一責任化
+2. Cache層簡素化
+📝 src/Serialization/Avro/Cache/AvroSerializerCache.cs
+   → SimpleAvroCache.cs に名前変更
+   → 統計・メトリクス機能完全除去
+   → 基本キャッシュ機能のみ保持
+3. Extensions委譲パターン
+📝 src/Serialization/Avro/Extensions/AvroSchemaExtensions.cs
+   → UnifiedSchemaGeneratorへの委譲実装
+   → 実装重複の完全排除
+   → Wrapper機能のみ提供
+4. Manager統合
+📝 src/Serialization/Avro/AvroSerializationManager.cs
+   → GlobalAvroSerializationManager.cs に名前変更
+   → AvroSerializerManager.cs と統合
+   → 単一責任による機能統合
+5. リトライ処理強化
+📝 src/Serialization/Avro/ResilientAvroSerializerManager.cs
+   → 警告ログ出力の完全実装（必須）
+   → 致命的エラーログ追加
+   → 人間介入必要性の明示
+   → Fail-Fast設計の徹底
+6. 例外クラス再設計
+📝 src/Serialization/Avro/Exceptions/AvroSchemaRegistrationException.cs
+   → SchemaRegistrationFatalException に名前変更
+   → Fail-Fast設計準拠
+   → 人間介入必要性の明示
+   → リトライ処理との統合
+7. KsqlContext監視統合
+📝 src/Application/KsqlContext.cs
+   → RuntimeMonitoringManager統合
+   → フェーズ分離の実装
+   → 初期化フェーズ：監視無効
+   → 運用フェーズ：監視有効
+8. Adapters強化
+📝 src/Serialization/Avro/Adapters/AvroSerializerAdapter.cs
+   → エラーハンドリング強化
+   → 型安全性チェック強化
+   → 運用ログ統合
+
+📝 src/Serialization/Avro/Adapters/AvroDeserializerAdapter.cs
+   → 同上
+9. Core層統合強化
+📝 src/Core/Extensions/LoggerFactoryExtensions.cs
+   → 後方互換性確保
+   → Null安全性強化
+
+📝 src/Core/Modeling/AvroModelBuilder.cs
+   → 統合後のスキーマ生成との連携強化
+
+📝 src/Core/Modeling/AvroEntityTypeBuilder.cs
+   → UnifiedSchemaGenerator連携
+10. 設定・オプション類
+📝 src/Application/KsqlContextOptions.cs
+   → RuntimeMonitoring設定追加
+   → フェーズ制御オプション
+
+📝 src/Configuration/Options/AvroOperationRetrySettings.cs
+   → ログ出力設定追加
+   → Fail-Fast設定強化
+
+🆕 新規作成ファイル（3個）
+1. 運用フェーズ限定監視
+🆕 src/Monitoring/Runtime/RuntimeMonitoringManager.cs
+   → 初期化フェーズ：監視無効
+   → 運用フェーズのみ：監視有効
+   → 設計方針準拠の監視範囲制限
+2. KsqlContext監視拡張
+🆕 src/Application/KsqlContextMonitoringExtensions.cs
+   → InitializeWithMonitoringAsync
+   → フェーズ分離の明確化
+   → 運用監視との統合
+3. Fail-Fast例外
+🆕 src/Serialization/Avro/Exceptions/SchemaRegistrationFatalException.cs
+   → 人間介入必要例外
+   → アプリ終了強制
+   → 運用エラー明示

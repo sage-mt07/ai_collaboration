@@ -45,9 +45,120 @@ KSQL Entity Frameworkは、C#プログラマがEntityFrameworkライクなAPIを
 4. **LINQサポート**: ストリーム処理をLINQクエリとして表現
 5. **段階的デプロイ**: 基本機能から高度な機能へと段階的に実装
 
-## 3. 主要コンポーネント
+## 3. POCO属性ベースDSL設計ルール（Fluent APIの排除方針）
+
+本OSSでは、Kafka/KSQLの設定をすべてPOCOクラスの属性で定義する方式を採用する。
+これは、Fluent APIを用いたDSL記述の柔軟性と引き換えに、「構成がPOCOに集約されている」という明快さを重視した設計方針である。
+
+🏷️ クラスレベル属性一覧
+|属性名	|説明|
+|---|---|
+[Topic("topic-name")]	|Kafkaトピック名の指定（Partitions, Replicationも設定可能）
+[KsqlStream] / [KsqlTable]	|Stream/Table の明示指定（未指定時は自動判定）
+[Table("name")]	|EF Coreとの互換性維持用（任意）
+[WindowHeartbeat("heartbeat-topic")]	|RocksDB側のウィンドウ更新確認用ハートビート設定
+
+🧩 プロパティレベル属性一覧
+|属性名	|説明|
+|---|---|
+[Key(Order = n)]|	KafkaのKeyに対応するプロパティ。複合キー可
+[KafkaIgnore]	|スキーマ定義・KSQL変換から除外される
+[DecimalPrecision(precision, scale)]	|decimal型の精度指定（例：18,4）
+[DateTimeFormat("format")]	|KSQL上でのDateTimeの文字列フォーマット
+[DefaultValue(value)]	|定義時のデフォルト値（スキーマ定義上のみ）
+[MaxLength(n)]	|文字列長の制約。Avroスキーマにも反映
+
+🤖 自動判定ロジック
+[Key]の有無によって [KsqlStream] or [KsqlTable] の暗黙的推定を行う
+
+Nullable<T> はスキーマ上で Union<Type, null> として定義される
+
+Key属性が複数ある場合は複合キー（CompositeKey）として変換される
+
+💡 サンプル：Orderエンティティの定義
+```csharp
+[Topic("orders", Partitions = 3, Replication = 1)]
+[KsqlTable]
+public class Order
+{
+    [Key(Order = 0)]
+    public int OrderId { get; set; }
+
+    [DateTimeFormat("yyyy-MM-dd")]
+    public DateTime OrderDate { get; set; }
+
+    [DecimalPrecision(18, 4)]
+    public decimal TotalAmount { get; set; }
+
+    [MaxLength(100)]
+    public string? Region { get; set; }
+
+    [KafkaIgnore]
+    public string? InternalUseOnly { get; set; }
+}
+```
+📘 設計上の方針と意図
+構成情報はすべて POCOに記述され、外部設定ファイルやFluent DSLは不要
+
+利用者は .cs ファイル上の属性のみを参照すれば動作構成を把握可能
+
+
+🔁 Fluent API の補助的活用と制限について
+POCO属性を中心とした設計方針を採る本DSLでは、Fluent API はあくまで補助的手段として位置づけられ、以下のコンポーネントで限定的に利用可能です。
+
+🧱 1. KsqlContextBuilder（KSQL DSL全体の構成）
+```csharp
+var context = CsharpKsqlContextBuilder.Create()
+    .UseSchemaRegistry("http://localhost:8081")
+    .EnableLogging(loggerFactory)
+    .ConfigureValidation(autoRegister: true, failOnErrors: false, enablePreWarming: true)
+    .WithTimeouts(TimeSpan.FromSeconds(5))
+    .EnableDebugMode(true)
+    .Build()
+    .BuildContext<MyKsqlContext>();
+```
+主な用途：
+
+スキーマレジストリ連携
+
+ログ出力の設定
+
+バリデーションやタイムアウト等の動作制御
+
+🧩 2. ModelBuilder（Entity定義時）
+```csharp
+protected override void OnModelCreating(IModelBuilder modelBuilder)
+{
+    modelBuilder.Entity<Order>()
+        .AsTable(); // または .AsStream()
+}
+```
+POCO属性に Stream/Table 指定がない場合のみ使用可
+
+明示的な型指定を可能にする（ただし key/topic 設定は禁止）
+
+📦 3. AvroEntityConfigurationBuilder（Avroスキーマ定義の詳細制御）
+```csharp
+configuration.Configure<Order>()
+    .ToTopic("orders")                   // ❌ 非推奨（属性優先）
+    .HasKey(o => o.Id)                   // ❌ 非推奨
+    .WithPartitions(3)
+    .WithReplicationFactor(2)
+    .AsStream();                         // ✅ Stream/Table指定のみ許可
+```    
+このビルダーは、Avroスキーマ生成時に高度な制御が必要な場合に限り使用される。
+ただし、以下のメソッド呼び出しは設計原則違反となる。
+
+🚫 制限事項
+メソッド	理由
+.ToTopic("...")	トピック名は [Topic] 属性で指定するため禁止
+.HasKey(...)	キー定義は [Key] 属性に一本化されている
+.AsStream() / .AsTable()	属性またはModelBuilderと重複可能。両方指定で一致しない場合はエラー
+
+これらのメソッドは呼び出された場合に NotSupportedException をスローする設計とし、誤用を防止する。
 
 ### 3.1 トピック (Kafka Topics)
+
 
 #### トピック定義
 ```csharp

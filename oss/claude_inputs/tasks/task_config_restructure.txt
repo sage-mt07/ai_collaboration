@@ -1,0 +1,59 @@
+# Configuration 名前空間の責務と分離原則（AI用構造認知補助）
+
+## 📌 Configuration の責務（What it does）
+- 外部構成ファイル（例: `appsettings.json`）からのバインディング
+- KafkaやSchemaRegistryなど「外部システムとの接続情報の定義」
+- `Options`クラス群の管理（KafkaOptions, SchemaRegistryOptionsなど）
+
+## 🚫 Configuration が行わないこと（What it never does）
+- Kafka接続の実行（例: ProducerやConsumerの生成）→ Messaging側の責務
+- シリアライズ・デシリアライズのロジック実装 → Serialization側の責務
+- メトリクスやヘルスチェックの実行 → Monitoring側の責務
+
+## 🧭 構造判断のルール（Namespace境界の明示）
+- `KsqlDsl.Configuration.*` に属するクラスは、**全て "設定値保持専用"**
+- 他namespaceで利用されても、Configurationは**一方向依存のみを許容**（循環禁止）
+- Kafka純正の型やenumは再定義せず、**Confluent.Kafkaの型を直接使う**
+
+## 📎 例
+```json
+"KsqlDsl": {
+  "Kafka": {
+    "BootstrapServers": "localhost:9092"
+  },
+  "SchemaRegistry": {
+    "Url": "http://localhost:8081",
+    "FieldNamingConvention": "CamelCase",
+    "RequireExplicitNull": true,
+    "EnumSerialization": "AsString",
+    "DateTimeEncoding": "UnixMilliseconds"
+  },
+  "Topics": {
+    "OrderStream": {
+        "TopicName": "orders",
+        "GroupId": "ksqldsl-order-consumer",
+        "AutoOffsetReset": "Earliest",  // Earliest / Latest / None
+        "EnableAutoCommit": false,
+        "FetchMaxBytes": 52428800,      // 50MB
+        "MaxPartitionFetchBytes": 1048576,
+        "SessionTimeoutMs": 10000,
+        "HeartbeatIntervalMs": 3000,
+        "MaxPollIntervalMs": 300000,
+        "AllowAutoCreateTopics": false
+    }
+  }
+}
+この例では以下のクラスにバインドされる：
+
+KafkaOptions
+
+SchemaRegistryOptions
+
+TopicOptions（Dictionary<string, TopicOptions>）
+
+✅ 判別指針（YES/NO形式）
+外部設定項目を扱う → YES、Configuration
+
+Kafkaライブラリの使用・呼び出しを含む → NO、Messagingなど他namespace
+
+接続検証や診断を行う → NO、Monitoring

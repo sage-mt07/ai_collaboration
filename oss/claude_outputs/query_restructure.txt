@@ -1,0 +1,1644 @@
+# Query層構造分割 - 実装計画
+
+## 📦 新フォルダ構造
+
+```
+src/Query/
+├── Abstractions/
+│   ├── IQueryTranslator.cs      ✅ 新規作成
+│   ├── IEventSet<T>.cs          ✅ 新規作成  
+│   └── IKsqlBuilder.cs          ✅ 新規作成
+├── Translation/
+│   ├── LinqExpressionAnalyzer.cs ✅ 既存分割
+│   ├── KsqlQueryBuilder.cs      ✅ 既存分割
+│   └── QueryDiagnostics.cs      ✅ 新規作成
+├── EventSets/
+│   ├── EventSetCore<T>.cs       ✅ 既存分割
+│   ├── EventSetStreaming<T>.cs  ✅ 既存分割
+│   └── EventSetValidation<T>.cs ✅ 既存分割
+└── Builders/
+    ├── SelectBuilder.cs         ✅ 移動
+    ├── JoinBuilder.cs           ✅ 移動
+    ├── WindowBuilder.cs         ✅ 移動
+    ├── GroupByBuilder.cs        ✅ 移動
+    ├── HavingBuilder.cs         ✅ 移動
+    └── ProjectionBuilder.cs     ✅ 移動
+```
+
+## 🧩 分割実装手順
+
+### 1️⃣ Abstractions層 - 共通インターフェース
+
+```csharp
+// src/Query/Abstractions/IQueryTranslator.cs
+using System;
+using System.Linq.Expressions;
+
+namespace KsqlDsl.Query.Abstractions
+{
+    /// <summary>
+    /// LINQ式からKSQL文への変換責務を定義
+    /// 設計理由：変換ロジックの抽象化、テスタビリティ向上
+    /// </summary>
+    public interface IQueryTranslator
+    {
+        /// <summary>
+        /// LINQ式をKSQL文に変換
+        /// </summary>
+        /// <param name="expression">LINQ式木</param>
+        /// <param name="topicName">対象トピック名</param>
+        /// <param name="isPullQuery">Pull Query判定</param>
+        /// <returns>KSQL文字列</returns>
+        string ToKsql(Expression expression, string topicName, bool isPullQuery = false);
+        
+        /// <summary>
+        /// 変換診断情報取得
+        /// </summary>
+        string GetDiagnostics();
+        
+        /// <summary>
+        /// Pull Query判定
+        /// </summary>
+        bool IsPullQuery();
+    }
+}
+
+// src/Query/Abstractions/IEventSet.cs
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Linq.Expressions;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace KsqlDsl.Query.Abstractions
+{
+    /// <summary>
+    /// EventSet操作の共通インターフェース
+    /// 設計理由：EventSet分割に対する統一API
+    /// </summary>
+    public interface IEventSet<T> : IQueryable<T>, IAsyncEnumerable<T> where T : class
+    {
+        // Core Operations
+        Task AddAsync(T entity, CancellationToken cancellationToken = default);
+        Task AddRangeAsync(IEnumerable<T> entities, CancellationToken cancellationToken = default);
+        
+        // Query Operations  
+        List<T> ToList();
+        Task<List<T>> ToListAsync(CancellationToken cancellationToken = default);
+        string ToKsql(bool isPullQuery = false);
+        
+        // Streaming Operations
+        void Subscribe(Action<T> onNext, CancellationToken cancellationToken = default);
+        Task SubscribeAsync(Func<T, Task> onNext, CancellationToken cancellationToken = default);
+        Task ForEachAsync(Func<T, Task> action, TimeSpan timeout = default, CancellationToken cancellationToken = default);
+        
+        // LINQ Extensions
+        IEventSet<T> Where(Expression<Func<T, bool>> predicate);
+        IEventSet<TResult> Select<TResult>(Expression<Func<T, TResult>> selector);
+        IEventSet<IGrouping<TKey, T>> GroupBy<TKey>(Expression<Func<T, TKey>> keySelector);
+        IEventSet<T> Take(int count);
+        IEventSet<T> Skip(int count);
+        
+        // Metadata Access
+        string GetTopicName();
+        KsqlDsl.Modeling.EntityModel GetEntityModel();
+        KafkaContext GetContext();
+    }
+}
+
+// src/Query/Abstractions/IKsqlBuilder.cs
+using System;
+using System.Linq.Expressions;
+
+namespace KsqlDsl.Query.Abstractions
+{
+    /// <summary>
+    /// KSQL構文ビルダーの共通インターフェース
+    /// 設計理由：各ビルダークラスの統一、責務明確化
+    /// </summary>
+    public interface IKsqlBuilder
+    {
+        /// <summary>
+        /// 式木からKSQL構文を構築
+        /// </summary>
+        /// <param name="expression">対象式木</param>
+        /// <returns>KSQL構文文字列</returns>
+        string Build(Expression expression);
+        
+        /// <summary>
+        /// ビルダー種別識別
+        /// </summary>
+        KsqlBuilderType BuilderType { get; }
+    }
+    
+    /// <summary>
+    /// ビルダー種別列挙
+    /// </summary>
+    public enum KsqlBuilderType
+    {
+        Select,
+        Where, 
+        GroupBy,
+        Having,
+        Join,
+        Window,
+        Projection
+    }
+}
+```
+
+### 2️⃣ Translation層 - 変換ロジック分割
+
+```csharp
+// src/Query/Translation/LinqExpressionAnalyzer.cs
+using System;
+using System.Collections.Generic;
+using System.Linq.Expressions;
+using KsqlDsl.Query.Abstractions;
+
+namespace KsqlDsl.Query.Translation
+{
+    /// <summary>
+    /// LINQ式木の構文解析
+    /// 設計理由：LinqToKsqlTranslatorから式木解析責務を分離
+    /// </summary>
+    public class LinqExpressionAnalyzer : ExpressionVisitor
+    {
+        private readonly List<MethodCallExpression> _methodCalls = new();
+        private readonly HashSet<string> _aggregateMethods = new();
+        private bool _hasGroupBy = false;
+        private bool _hasJoin = false;
+        private bool _hasWindow = false;
+        
+        public LinqExpressionAnalyzer()
+        {
+            InitializeAggregateMethods();
+        }
+        
+        /// <summary>
+        /// 式木を解析してメタデータを抽出
+        /// </summary>
+        public ExpressionAnalysisResult Analyze(Expression expression)
+        {
+            // 状態リセット
+            _methodCalls.Clear();
+            _hasGroupBy = _hasJoin = _hasWindow = false;
+            
+            // 式木訪問
+            Visit(expression);
+            
+            return new ExpressionAnalysisResult
+            {
+                MethodCalls = _methodCalls.ToList(),
+                HasGroupBy = _hasGroupBy,
+                HasJoin = _hasJoin, 
+                HasWindow = _hasWindow,
+                HasAggregation = _methodCalls.Any(mc => _aggregateMethods.Contains(mc.Method.Name)),
+                QueryType = DetermineQueryType()
+            };
+        }
+        
+        protected override Expression VisitMethodCall(MethodCallExpression node)
+        {
+            _methodCalls.Add(node);
+            
+            switch (node.Method.Name)
+            {
+                case "GroupBy":
+                    _hasGroupBy = true;
+                    break;
+                case "Join":
+                    _hasJoin = true;
+                    break;
+                case "Window":
+                case "TumblingWindow":
+                case "HoppingWindow":
+                case "SessionWindow":
+                    _hasWindow = true;
+                    break;
+            }
+            
+            return base.VisitMethodCall(node);
+        }
+        
+        private void InitializeAggregateMethods()
+        {
+            var methods = new[] { "Sum", "Count", "Max", "Min", "Average", "Avg", 
+                                "LatestByOffset", "EarliestByOffset", "CollectList", "CollectSet" };
+            foreach (var method in methods)
+            {
+                _aggregateMethods.Add(method);
+            }
+        }
+        
+        private QueryType DetermineQueryType()
+        {
+            if (_hasJoin) return QueryType.Join;
+            if (_hasGroupBy || _aggregateMethods.Any(m => _methodCalls.Any(mc => mc.Method.Name == m)))
+                return QueryType.Aggregate;
+            if (_hasWindow) return QueryType.Windowed;
+            
+            return QueryType.Simple;
+        }
+    }
+    
+    /// <summary>
+    /// 式木解析結果
+    /// </summary>
+    public class ExpressionAnalysisResult
+    {
+        public List<MethodCallExpression> MethodCalls { get; set; } = new();
+        public bool HasGroupBy { get; set; }
+        public bool HasJoin { get; set; }
+        public bool HasWindow { get; set; }
+        public bool HasAggregation { get; set; }
+        public QueryType QueryType { get; set; }
+    }
+    
+    public enum QueryType
+    {
+        Simple,
+        Aggregate, 
+        Join,
+        Windowed
+    }
+}
+
+// src/Query/Translation/KsqlQueryBuilder.cs
+using System;
+using System.Linq.Expressions;
+using System.Text;
+using KsqlDsl.Query.Abstractions;
+using KsqlDsl.Query.Builders;
+
+namespace KsqlDsl.Query.Translation
+{
+    /// <summary>
+    /// KSQL構文構築ロジック
+    /// 設計理由：LinqToKsqlTranslatorから構文構築責務を分離
+    /// </summary>
+    public class KsqlQueryBuilder
+    {
+        private readonly IKsqlBuilder _selectBuilder;
+        private readonly IKsqlBuilder _joinBuilder;
+        private readonly IKsqlBuilder _groupByBuilder;
+        private readonly IKsqlBuilder _havingBuilder;
+        private readonly IKsqlBuilder _windowBuilder;
+        private readonly IKsqlBuilder _projectionBuilder;
+        
+        public KsqlQueryBuilder()
+        {
+            _selectBuilder = new SelectBuilder();
+            _joinBuilder = new JoinBuilder();
+            _groupByBuilder = new GroupByBuilder();
+            _havingBuilder = new HavingBuilder();
+            _windowBuilder = new WindowBuilder();
+            _projectionBuilder = new ProjectionBuilder();
+        }
+        
+        /// <summary>
+        /// 解析結果からKSQL文を構築
+        /// </summary>
+        public string BuildQuery(ExpressionAnalysisResult analysisResult, string topicName, bool isPullQuery)
+        {
+            var query = new StringBuilder();
+            
+            // SELECT句構築
+            BuildSelectClause(query, analysisResult);
+            
+            // FROM句
+            query.Append($" FROM {topicName}");
+            
+            // WHERE句、GROUP BY句等の構築
+            BuildQueryClauses(query, analysisResult);
+            
+            // EMIT句制御
+            if (!isPullQuery)
+            {
+                query.Append(" EMIT CHANGES");
+            }
+            
+            return query.ToString();
+        }
+        
+        private void BuildSelectClause(StringBuilder query, ExpressionAnalysisResult result)
+        {
+            var selectCall = result.MethodCalls.LastOrDefault(mc => mc.Method.Name == "Select");
+            
+            if (selectCall != null)
+            {
+                if (result.HasAggregation)
+                {
+                    // 集約クエリの場合は特別処理
+                    query.Append(BuildAggregateSelect(selectCall));
+                }
+                else
+                {
+                    query.Append(_projectionBuilder.Build(selectCall));
+                }
+            }
+            else
+            {
+                query.Append("SELECT *");
+            }
+        }
+        
+        private void BuildQueryClauses(StringBuilder query, ExpressionAnalysisResult result)
+        {
+            // WHERE句
+            var whereCall = result.MethodCalls.FirstOrDefault(mc => mc.Method.Name == "Where");
+            if (whereCall != null)
+            {
+                // 実装詳細は既存KsqlConditionBuilderを活用
+                query.Append(" ").Append(BuildWhereClause(whereCall));
+            }
+            
+            // GROUP BY句
+            if (result.HasGroupBy)
+            {
+                var groupByCall = result.MethodCalls.First(mc => mc.Method.Name == "GroupBy");
+                query.Append(" ").Append(_groupByBuilder.Build(groupByCall));
+            }
+            
+            // JOIN句処理
+            if (result.HasJoin)
+            {
+                var joinCall = result.MethodCalls.First(mc => mc.Method.Name == "Join");
+                // JOINの場合は構文全体を再構築
+                return; // 別途実装
+            }
+        }
+        
+        private string BuildAggregateSelect(Expression selectExpression)
+        {
+            // 既存KsqlAggregateBuilderを活用
+            return KsqlDsl.Ksql.KsqlAggregateBuilder.Build(selectExpression);
+        }
+        
+        private string BuildWhereClause(Expression whereExpression)
+        {
+            // 既存KsqlConditionBuilderを活用
+            var conditionBuilder = new KsqlDsl.Ksql.KsqlConditionBuilder();
+            return conditionBuilder.Build(whereExpression);
+        }
+    }
+}
+
+// src/Query/Translation/QueryDiagnostics.cs
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace KsqlDsl.Query.Translation
+{
+    /// <summary>
+    /// クエリ診断・デバッグ情報管理
+    /// 設計理由：デバッグ出力・生成ログの責務分離
+    /// </summary>
+    public class QueryDiagnostics
+    {
+        private readonly List<string> _analysisSteps = new();
+        private readonly Dictionary<string, object> _metadata = new();
+        private DateTime _startTime;
+        private TimeSpan _analysisTime;
+        
+        public QueryDiagnostics()
+        {
+            _startTime = DateTime.UtcNow;
+        }
+        
+        /// <summary>
+        /// 解析ステップを記録
+        /// </summary>
+        public void LogStep(string step, object? detail = null)
+        {
+            var timestamp = DateTime.UtcNow.ToString("HH:mm:ss.fff");
+            var message = $"[{timestamp}] {step}";
+            
+            if (detail != null)
+            {
+                message += $": {detail}";
+            }
+            
+            _analysisSteps.Add(message);
+        }
+        
+        /// <summary>
+        /// メタデータ設定
+        /// </summary>
+        public void SetMetadata(string key, object value)
+        {
+            _metadata[key] = value;
+        }
+        
+        /// <summary>
+        /// 解析完了マーク
+        /// </summary>
+        public void MarkComplete()
+        {
+            _analysisTime = DateTime.UtcNow - _startTime;
+            LogStep($"Analysis completed in {_analysisTime.TotalMilliseconds:F2}ms");
+        }
+        
+        /// <summary>
+        /// 診断レポート生成
+        /// </summary>
+        public string GenerateReport()
+        {
+            var report = new StringBuilder();
+            
+            report.AppendLine("=== KSQL Query Diagnostics ===");
+            report.AppendLine($"Analysis Duration: {_analysisTime.TotalMilliseconds:F2}ms");
+            report.AppendLine();
+            
+            // メタデータ出力
+            if (_metadata.Count > 0)
+            {
+                report.AppendLine("Metadata:");
+                foreach (var kvp in _metadata)
+                {
+                    report.AppendLine($"  {kvp.Key}: {kvp.Value}");
+                }
+                report.AppendLine();
+            }
+            
+            // ステップ履歴
+            report.AppendLine("Analysis Steps:");
+            foreach (var step in _analysisSteps)
+            {
+                report.AppendLine($"  {step}");
+            }
+            
+            return report.ToString();
+        }
+        
+        /// <summary>
+        /// 簡潔サマリ
+        /// </summary>
+        public string GetSummary()
+        {
+            var queryType = _metadata.TryGetValue("QueryType", out var qt) ? qt : "Unknown";
+            var isPullQuery = _metadata.TryGetValue("IsPullQuery", out var pq) ? pq : false;
+            
+            return $"Query: {queryType}, Pull: {isPullQuery}, Time: {_analysisTime.TotalMilliseconds:F1}ms";
+        }
+    }
+}
+```
+
+### 3️⃣ EventSets層 - EventSet分割
+
+```csharp
+// src/Query/EventSets/EventSetCore.cs
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Linq.Expressions;
+using System.Threading;
+using System.Threading.Tasks;
+using KsqlDsl.Modeling;
+using KsqlDsl.Query.Abstractions;
+
+namespace KsqlDsl.Query.EventSets
+{
+    /// <summary>
+    /// EventSet基本CRUD操作
+    /// 設計理由：EventSet.csから基本操作責務を分離
+    /// </summary>
+    public partial class EventSetCore<T> : IEventSet<T> where T : class
+    {
+        protected readonly KafkaContext _context;
+        protected readonly EntityModel _entityModel;
+        protected readonly IQueryProvider _queryProvider;
+        protected readonly Expression _expression;
+
+        internal EventSetCore(KafkaContext context, EntityModel entityModel)
+        {
+            _context = context ?? throw new ArgumentNullException(nameof(context));
+            _entityModel = entityModel ?? throw new ArgumentNullException(nameof(entityModel));
+            _queryProvider = new EventQueryProvider<T>(context, entityModel);
+            _expression = Expression.Constant(this);
+        }
+
+        internal EventSetCore(KafkaContext context, EntityModel entityModel, Expression expression)
+        {
+            _context = context ?? throw new ArgumentNullException(nameof(context));
+            _entityModel = entityModel ?? throw new ArgumentNullException(nameof(entityModel));
+            _queryProvider = new EventQueryProvider<T>(context, entityModel);
+            _expression = expression ?? throw new ArgumentNullException(nameof(expression));
+        }
+
+        // IQueryable実装
+        public Type ElementType => typeof(T);
+        public Expression Expression => _expression;
+        public IQueryProvider Provider => _queryProvider;
+
+        // 基本追加操作
+        public async Task AddAsync(T entity, CancellationToken cancellationToken = default)
+        {
+            if (entity == null)
+                throw new ArgumentNullException(nameof(entity));
+
+            ValidateEntity(entity);
+
+            var producerService = _context.GetProducerService();
+            await producerService.SendAsync(entity, _entityModel, cancellationToken);
+
+            if (_context.Options.EnableDebugLogging)
+            {
+                var topicName = _entityModel.TopicAttribute?.TopicName ?? _entityModel.EntityType.Name;
+                Console.WriteLine($"[DEBUG] EventSetCore.AddAsync: {typeof(T).Name} → Topic: {topicName} (送信完了)");
+            }
+        }
+
+        public async Task AddRangeAsync(IEnumerable<T> entities, CancellationToken cancellationToken = default)
+        {
+            if (entities == null)
+                throw new ArgumentNullException(nameof(entities));
+
+            var entityList = entities.ToList();
+            if (entityList.Count == 0)
+                return;
+
+            // 全エンティティの事前バリデーション
+            foreach (var entity in entityList)
+            {
+                ValidateEntity(entity);
+            }
+
+            var producerService = _context.GetProducerService();
+            await producerService.SendRangeAsync(entityList, _entityModel, cancellationToken);
+
+            if (_context.Options.EnableDebugLogging)
+            {
+                var topicName = _entityModel.TopicAttribute?.TopicName ?? _entityModel.EntityType.Name;
+                Console.WriteLine($"[DEBUG] EventSetCore.AddRangeAsync: {entityList.Count}件の{typeof(T).Name} → Topic: {topicName} (送信完了)");
+            }
+        }
+
+        // IEnumerable実装
+        public IEnumerator<T> GetEnumerator()
+        {
+            return ToList().GetEnumerator();
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+        {
+            return GetEnumerator();
+        }
+
+        // IAsyncEnumerable実装
+        public async IAsyncEnumerator<T> GetAsyncEnumerator(CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(1, cancellationToken);
+
+            var items = ToList();
+            foreach (var item in items)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                    yield break;
+
+                yield return item;
+            }
+        }
+
+        // メタデータアクセス
+        public EntityModel GetEntityModel() => _entityModel;
+        public KafkaContext GetContext() => _context;
+        public string GetTopicName() => _entityModel.TopicAttribute?.TopicName ?? _entityModel.EntityType.Name;
+
+        // バリデーション（共通）
+        protected virtual void ValidateEntity(T entity)
+        {
+            if (entity == null)
+                throw new ArgumentNullException(nameof(entity));
+
+            // 基本的なキープロパティチェック
+            if (_entityModel.KeyProperties.Length > 0)
+            {
+                foreach (var keyProperty in _entityModel.KeyProperties)
+                {
+                    var keyValue = keyProperty.GetValue(entity);
+                    if (keyValue == null)
+                    {
+                        throw new InvalidOperationException(
+                            $"Key property '{keyProperty.Name}' cannot be null for entity type '{typeof(T).Name}'");
+                    }
+
+                    if (keyProperty.PropertyType == typeof(string) && string.IsNullOrEmpty((string)keyValue))
+                    {
+                        throw new InvalidOperationException(
+                            $"Key property '{keyProperty.Name}' cannot be empty for entity type '{typeof(T).Name}'");
+                    }
+                }
+            }
+        }
+
+        public override string ToString()
+        {
+            var topicName = GetTopicName();
+            var entityName = typeof(T).Name;
+            return $"EventSetCore<{entityName}> → Topic: {topicName}";
+        }
+
+        // 抽象メソッド（他の部分クラスで実装）
+        public abstract List<T> ToList();
+        public abstract Task<List<T>> ToListAsync(CancellationToken cancellationToken = default);
+        public abstract string ToKsql(bool isPullQuery = false);
+        public abstract void Subscribe(Action<T> onNext, CancellationToken cancellationToken = default);
+        public abstract Task SubscribeAsync(Func<T, Task> onNext, CancellationToken cancellationToken = default);
+        public abstract Task ForEachAsync(Func<T, Task> action, TimeSpan timeout = default, CancellationToken cancellationToken = default);
+        public abstract IEventSet<T> Where(Expression<Func<T, bool>> predicate);
+        public abstract IEventSet<TResult> Select<TResult>(Expression<Func<T, TResult>> selector);
+        public abstract IEventSet<IGrouping<TKey, T>> GroupBy<TKey>(Expression<Func<T, TKey>> keySelector);
+        public abstract IEventSet<T> Take(int count);
+        public abstract IEventSet<T> Skip(int count);
+    }
+}
+```
+
+### 4️⃣ EventSets層 - Streaming & Validation分割
+
+```csharp
+// src/Query/EventSets/EventSetStreaming.cs
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Linq.Expressions;
+using System.Threading;
+using System.Threading.Tasks;
+using KsqlDsl.Query.Abstractions;
+using KsqlDsl.Query.Translation;
+
+namespace KsqlDsl.Query.EventSets
+{
+    /// <summary>
+    /// EventSet Push/Pull型操作、EMIT制御
+    /// 設計理由：ストリーミング関連責務の分離
+    /// </summary>
+    public partial class EventSetStreaming<T> : EventSetCore<T> where T : class
+    {
+        private readonly IQueryTranslator _queryTranslator;
+        
+        internal EventSetStreaming(KafkaContext context, EntityModel entityModel) 
+            : base(context, entityModel)
+        {
+            _queryTranslator = new QueryTranslator();
+        }
+
+        internal EventSetStreaming(KafkaContext context, EntityModel entityModel, Expression expression) 
+            : base(context, entityModel, expression)
+        {
+            _queryTranslator = new QueryTranslator();
+        }
+
+        // Pull Query実行（ToList系）
+        public override List<T> ToList()
+        {
+            var topicName = GetTopicName();
+            
+            ValidateQueryBeforeExecution();
+            
+            // Pull Queryとして実行（isPullQuery: true）
+            var ksqlQuery = ToKsql(isPullQuery: true);
+
+            if (_context.Options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] EventSetStreaming.ToList: {typeof(T).Name} ← Topic: {topicName}");
+                Console.WriteLine($"[DEBUG] Generated KSQL: {ksqlQuery}");
+                Console.WriteLine($"[DEBUG] Query Diagnostics: {_queryTranslator.GetDiagnostics()}");
+            }
+
+            var consumerService = _context.GetConsumerService();
+
+            try
+            {
+                ValidateKsqlQuery(ksqlQuery);
+                var results = consumerService.Query<T>(ksqlQuery, _entityModel);
+                ValidateQueryResults(results);
+
+                if (_context.Options.EnableDebugLogging)
+                {
+                    Console.WriteLine($"[DEBUG] Query completed successfully. Results: {results.Count} items");
+                }
+
+                return results;
+            }
+            catch (Exception ex)
+            {
+                HandleQueryException(ex, topicName, "ToList");
+                throw;
+            }
+        }
+
+        public override async Task<List<T>> ToListAsync(CancellationToken cancellationToken = default)
+        {
+            var topicName = GetTopicName();
+            
+            ValidateQueryBeforeExecution();
+            
+            var ksqlQuery = ToKsql(isPullQuery: true);
+
+            if (_context.Options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] EventSetStreaming.ToListAsync: {typeof(T).Name} ← Topic: {topicName}");
+                Console.WriteLine($"[DEBUG] Generated KSQL: {ksqlQuery}");
+            }
+
+            var consumerService = _context.GetConsumerService();
+
+            try
+            {
+                ValidateKsqlQuery(ksqlQuery);
+                var results = await consumerService.QueryAsync<T>(ksqlQuery, _entityModel, cancellationToken);
+                ValidateQueryResults(results);
+
+                return results;
+            }
+            catch (OperationCanceledException)
+            {
+                if (_context.Options.EnableDebugLogging)
+                {
+                    Console.WriteLine($"[DEBUG] Query cancelled by CancellationToken");
+                }
+                throw;
+            }
+            catch (Exception ex)
+            {
+                HandleQueryException(ex, topicName, "ToListAsync");
+                throw;
+            }
+        }
+
+        // Push Query実行（Subscribe系）
+        public override void Subscribe(Action<T> onNext, CancellationToken cancellationToken = default)
+        {
+            if (onNext == null)
+                throw new ArgumentNullException(nameof(onNext));
+
+            var topicName = GetTopicName();
+            if (_context.Options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] EventSetStreaming.Subscribe: {typeof(T).Name} ← Topic: {topicName} (Push型購読開始)");
+            }
+        }
+
+        public override async Task SubscribeAsync(Func<T, Task> onNext, CancellationToken cancellationToken = default)
+        {
+            if (onNext == null)
+                throw new ArgumentNullException(nameof(onNext));
+
+            await Task.Delay(1, cancellationToken);
+
+            var topicName = GetTopicName();
+            if (_context.Options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] EventSetStreaming.SubscribeAsync: {typeof(T).Name} ← Topic: {topicName} (非同期Push型購読開始)");
+            }
+        }
+
+        public override async Task ForEachAsync(Func<T, Task> action, TimeSpan timeout = default, CancellationToken cancellationToken = default)
+        {
+            if (action == null)
+                throw new ArgumentNullException(nameof(action));
+
+            var topicName = GetTopicName();
+            var timeoutMs = timeout == TimeSpan.Zero ? int.MaxValue : (int)timeout.TotalMilliseconds;
+
+            // Push Query（ストリーミング取得）専用
+            var ksqlQuery = ToKsql(isPullQuery: false);
+
+            if (_context.Options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] EventSetStreaming.ForEachAsync: {typeof(T).Name} ← Topic: {topicName} (Push型ストリーミング開始)");
+                Console.WriteLine($"[DEBUG] Generated KSQL: {ksqlQuery}");
+                Console.WriteLine($"[DEBUG] Timeout: {timeoutMs}ms");
+            }
+
+            ValidateQueryBeforeExecution();
+
+            var consumerService = _context.GetConsumerService();
+
+            CancellationTokenSource? timeoutCts = null;
+            CancellationToken effectiveToken = cancellationToken;
+
+            if (timeoutMs != int.MaxValue)
+            {
+                timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeoutCts.CancelAfter(timeoutMs);
+                effectiveToken = timeoutCts.Token;
+            }
+
+            try
+            {
+                await consumerService.SubscribeStreamAsync<T>(
+                    ksqlQuery,
+                    _entityModel,
+                    async (item) =>
+                    {
+                        if (effectiveToken.IsCancellationRequested)
+                            return;
+
+                        await action(item);
+                    },
+                    effectiveToken);
+
+                if (_context.Options.EnableDebugLogging)
+                {
+                    Console.WriteLine($"[DEBUG] ForEachAsync streaming completed for {typeof(T).Name}");
+                }
+            }
+            catch (OperationCanceledException ex) when (timeoutCts?.Token.IsCancellationRequested == true && !cancellationToken.IsCancellationRequested)
+            {
+                if (_context.Options.EnableDebugLogging)
+                {
+                    Console.WriteLine($"[DEBUG] ForEachAsync streaming timeout after {timeoutMs}ms for {typeof(T).Name}");
+                }
+                throw new TimeoutException($"ForEachAsync operation timed out after {timeoutMs}ms", ex);
+            }
+            catch (Exception ex)
+            {
+                HandleQueryException(ex, topicName, "ForEachAsync");
+                throw;
+            }
+            finally
+            {
+                timeoutCts?.Dispose();
+            }
+        }
+
+        // KSQL変換（フラグ制御版）
+        public override string ToKsql(bool isPullQuery = false)
+        {
+            try
+            {
+                var topicName = GetTopicName();
+                return _queryTranslator.ToKsql(_expression, topicName, isPullQuery);
+            }
+            catch (Exception ex)
+            {
+                if (_context.Options.EnableDebugLogging)
+                {
+                    Console.WriteLine($"[DEBUG] KSQL変換エラー: {ex.Message}");
+                    Console.WriteLine($"[DEBUG] Expression: {_expression}");
+                }
+                return $"/* KSQL変換エラー: {ex.Message} */";
+            }
+        }
+
+        // LINQ Extensions - 新しいインスタンスを返す
+        public override IEventSet<T> Where(Expression<Func<T, bool>> predicate)
+        {
+            if (predicate == null)
+                throw new ArgumentNullException(nameof(predicate));
+
+            var methodCall = Expression.Call(
+                typeof(Queryable),
+                nameof(Queryable.Where),
+                new[] { typeof(T) },
+                _expression,
+                Expression.Quote(predicate));
+
+            return new EventSetStreaming<T>(_context, _entityModel, methodCall);
+        }
+
+        public override IEventSet<TResult> Select<TResult>(Expression<Func<T, TResult>> selector)
+        {
+            if (selector == null)
+                throw new ArgumentNullException(nameof(selector));
+
+            var methodCall = Expression.Call(
+                typeof(Queryable),
+                nameof(Queryable.Select),
+                new[] { typeof(T), typeof(TResult) },
+                _expression,
+                Expression.Quote(selector));
+
+            return new EventSetStreaming<TResult>(_context, _entityModel, methodCall);
+        }
+
+        public override IEventSet<IGrouping<TKey, T>> GroupBy<TKey>(Expression<Func<T, TKey>> keySelector)
+        {
+            if (keySelector == null)
+                throw new ArgumentNullException(nameof(keySelector));
+
+            var methodCall = Expression.Call(
+                typeof(Queryable),
+                nameof(Queryable.GroupBy),
+                new[] { typeof(T), typeof(TKey) },
+                _expression,
+                Expression.Quote(keySelector));
+
+            return new EventSetStreaming<IGrouping<TKey, T>>(_context, _entityModel, methodCall);
+        }
+
+        public override IEventSet<T> Take(int count)
+        {
+            if (count <= 0)
+                throw new ArgumentException("Count must be positive", nameof(count));
+
+            var methodCall = Expression.Call(
+                typeof(Queryable),
+                nameof(Queryable.Take),
+                new[] { typeof(T) },
+                _expression,
+                Expression.Constant(count));
+
+            return new EventSetStreaming<T>(_context, _entityModel, methodCall);
+        }
+
+        public override IEventSet<T> Skip(int count)
+        {
+            if (count < 0)
+                throw new ArgumentException("Count cannot be negative", nameof(count));
+
+            var methodCall = Expression.Call(
+                typeof(Queryable),
+                nameof(Queryable.Skip),
+                new[] { typeof(T) },
+                _expression,
+                Expression.Constant(count));
+
+            return new EventSetStreaming<T>(_context, _entityModel, methodCall);
+        }
+
+        // プライベートヘルパーメソッド
+        private void ValidateKsqlQuery(string ksqlQuery)
+        {
+            if (string.IsNullOrEmpty(ksqlQuery) || ksqlQuery.Contains("/* KSQL変換エラー"))
+            {
+                throw new InvalidOperationException($"Failed to generate valid KSQL query for {typeof(T).Name}");
+            }
+        }
+
+        private void HandleQueryException(Exception ex, string topicName, string operation)
+        {
+            if (_context.Options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[DEBUG] {operation} error: {ex.Message}");
+            }
+
+            if (ex is KafkaConsumerException)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to execute {operation} on topic '{topicName}' for {typeof(T).Name}: {ex.Message}", ex);
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"Unexpected error in {operation} for {typeof(T).Name} from topic '{topicName}': {ex.Message}", ex);
+            }
+        }
+    }
+}
+
+// src/Query/EventSets/EventSetValidation.cs
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Linq.Expressions;
+using System.Reflection;
+using KsqlDsl.Validation;
+
+namespace KsqlDsl.Query.EventSets
+{
+    /// <summary>
+    /// EventSet型検証・Null確認
+    /// 設計理由：バリデーション責務の分離、Strictモード対応
+    /// </summary>
+    public partial class EventSetValidation<T> : EventSetStreaming<T> where T : class
+    {
+        internal EventSetValidation(KafkaContext context, EntityModel entityModel) 
+            : base(context, entityModel) { }
+
+        internal EventSetValidation(KafkaContext context, EntityModel entityModel, Expression expression) 
+            : base(context, entityModel, expression) { }
+
+        /// <summary>
+        /// クエリ実行前バリデーション強化版
+        /// </summary>
+        protected override void ValidateQueryBeforeExecution()
+        {
+            // 基底クラスのバリデーション
+            base.ValidateQueryBeforeExecution();
+
+            // EntityModelバリデーション
+            if (_entityModel == null)
+            {
+                throw new InvalidOperationException($"EntityModel is not configured for {typeof(T).Name}");
+            }
+
+            if (!_entityModel.IsValid)
+            {
+                var errors = _entityModel.ValidationResult?.Errors ?? new List<string> { "Unknown validation error" };
+                throw new InvalidOperationException(
+                    $"EntityModel validation failed for {typeof(T).Name}: {string.Join("; ", errors)}");
+            }
+
+            // Expression バリデーション
+            if (_expression == null)
+            {
+                throw new InvalidOperationException($"Query expression is null for {typeof(T).Name}");
+            }
+
+            // 未サポート操作チェック強化
+            try
+            {
+                CheckForUnsupportedOperations(_expression);
+            }
+            catch (NotSupportedException ex)
+            {
+                throw new NotSupportedException(
+                    $"Unsupported LINQ operation detected in query for {typeof(T).Name}: {ex.Message}", ex);
+            }
+
+            // Strictモード時の追加チェック
+            if (_context.Options.ValidationMode == ValidationMode.Strict)
+            {
+                ValidateStrictModeRequirements();
+            }
+        }
+
+        /// <summary>
+        /// クエリ結果後処理バリデーション強化版
+        /// </summary>
+        protected void ValidateQueryResults(List<T> results)
+        {
+            if (results == null)
+            {
+                throw new InvalidOperationException($"Query returned null results for {typeof(T).Name}");
+            }
+
+            // Strictモード時の追加バリデーション
+            if (_context.Options.ValidationMode == ValidationMode.Strict)
+            {
+                foreach (var result in results)
+                {
+                    if (result == null)
+                    {
+                        throw new InvalidOperationException(
+                            $"Query returned null entity in results for {typeof(T).Name}");
+                    }
+
+                    ValidateEntityStrict(result);
+                }
+            }
+        }
+
+        /// <summary>
+        /// エンティティバリデーション拡張版
+        /// </summary>
+        protected override void ValidateEntity(T entity)
+        {
+            base.ValidateEntity(entity);
+
+            // Strictモード時の追加バリデーション
+            if (_context.Options.ValidationMode == ValidationMode.Strict)
+            {
+                ValidateEntityStrict(entity);
+            }
+        }
+
+        /// <summary>
+        /// Strictモードエンティティバリデーション
+        /// </summary>
+        private void ValidateEntityStrict(T entity)
+        {
+            var entityType = typeof(T);
+            var properties = entityType.GetProperties();
+
+            foreach (var property in properties)
+            {
+                var value = property.GetValue(entity);
+
+                // MaxLength validation for string properties
+                var maxLengthAttr = property.GetCustomAttribute<KsqlDsl.Attributes.MaxLengthAttribute>();
+                if (maxLengthAttr != null && value is string stringValue)
+                {
+                    if (stringValue.Length > maxLengthAttr.Length)
+                    {
+                        throw new InvalidOperationException(
+                            $"Property '{property.Name}' exceeds maximum length of {maxLengthAttr.Length}. Current length: {stringValue.Length}");
+                    }
+                }
+
+                // Required property validation
+                if (IsRequiredProperty(property) && value == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Required property '{property.Name}' cannot be null for entity type '{entityType.Name}'");
+                }
+
+                // Type compatibility validation
+                ValidatePropertyTypeCompatibility(property, value);
+            }
+        }
+
+        /// <summary>
+        /// 未サポート操作チェック
+        /// </summary>
+        private void CheckForUnsupportedOperations(Expression expression)
+        {
+            var visitor = new UnsupportedOperationVisitor();
+            visitor.Visit(expression);
+        }
+
+        /// <summary>
+        /// Strictモード要件バリデーション
+        /// </summary>
+        private void ValidateStrictModeRequirements()
+        {
+            // スキーマ整合性チェック
+            ValidateSchemaConsistency();
+
+            // パフォーマンス警告チェック
+            ValidatePerformanceImpact();
+        }
+
+        /// <summary>
+        /// スキーマ整合性チェック
+        /// </summary>
+        private void ValidateSchemaConsistency()
+        {
+            var entityType = typeof(T);
+            var properties = entityType.GetProperties();
+
+            // 全プロパティがシリアライズ可能かチェック
+            foreach (var property in properties)
+            {
+                if (property.GetCustomAttribute<KsqlDsl.Modeling.KafkaIgnoreAttribute>() != null)
+                    continue;
+
+                if (!IsSerializableType(property.PropertyType))
+                {
+                    throw new InvalidOperationException(
+                        $"Property '{property.Name}' of type '{property.PropertyType.Name}' is not serializable in Avro schema for {entityType.Name}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// パフォーマンス影響バリデーション
+        /// </summary>
+        private void ValidatePerformanceImpact()
+        {
+            // 複雑なクエリの警告
+            var complexityScore = CalculateQueryComplexity(_expression);
+            if (complexityScore > 10)
+            {
+                if (_context.Options.EnableDebugLogging)
+                {
+                    Console.WriteLine($"[WARNING] High query complexity detected (score: {complexityScore}) for {typeof(T).Name}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// プロパティが必須かどうかの判定
+        /// </summary>
+        private bool IsRequiredProperty(PropertyInfo property)
+        {
+            // キープロパティは必須
+            if (property.GetCustomAttribute<KsqlDsl.Attributes.KeyAttribute>() != null)
+                return true;
+
+            // Nullable型は非必須
+            if (Nullable.GetUnderlyingType(property.PropertyType) != null)
+                return false;
+
+            // 参照型のnull許可状態をチェック
+            if (!property.PropertyType.IsValueType)
+            {
+                try
+                {
+                    var nullabilityContext = new NullabilityInfoContext();
+                    var nullabilityInfo = nullabilityContext.Create(property);
+                    return nullabilityInfo.WriteState == NullabilityState.NotNull;
+                }
+                catch
+                {
+                    return false; // Nullable context取得失敗時は非必須扱い
+                }
+            }
+
+            return true; // 値型は基本的に必須
+        }
+
+        /// <summary>
+        /// プロパティ型互換性バリデーション
+        /// </summary>
+        private void ValidatePropertyTypeCompatibility(PropertyInfo property, object? value)
+        {
+            if (value == null) return;
+
+            var expectedType = property.PropertyType;
+            var actualType = value.GetType();
+
+            if (!expectedType.IsAssignableFrom(actualType))
+            {
+                throw new InvalidOperationException(
+                    $"Property '{property.Name}' expected type '{expectedType.Name}' but got '{actualType.Name}'");
+            }
+        }
+
+        /// <summary>
+        /// シリアライズ可能型判定
+        /// </summary>
+        private bool IsSerializableType(Type type)
+        {
+            var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
+
+            return underlyingType.IsPrimitive ||
+                   underlyingType == typeof(string) ||
+                   underlyingType == typeof(decimal) ||
+                   underlyingType == typeof(DateTime) ||
+                   underlyingType == typeof(DateTimeOffset) ||
+                   underlyingType == typeof(Guid) ||
+                   underlyingType == typeof(byte[]) ||
+                   underlyingType.IsEnum;
+        }
+
+        /// <summary>
+        /// クエリ複雑度計算
+        /// </summary>
+        private int CalculateQueryComplexity(Expression expression)
+        {
+            var visitor = new ComplexityCalculatorVisitor();
+            visitor.Visit(expression);
+            return visitor.ComplexityScore;
+        }
+
+        /// <summary>
+        /// 未サポート操作検出Visitor
+        /// </summary>
+        private class UnsupportedOperationVisitor : ExpressionVisitor
+        {
+            protected override Expression VisitMethodCall(MethodCallExpression node)
+            {
+                var methodName = node.Method.Name;
+
+                switch (methodName)
+                {
+                    case "OrderBy":
+                    case "OrderByDescending":
+                    case "ThenBy":
+                    case "ThenByDescending":
+                        throw new NotSupportedException($"ORDER BY operations are not supported in ksqlDB: {methodName}");
+
+                    case "Distinct":
+                        throw new NotSupportedException("DISTINCT operations are not supported in ksqlDB");
+
+                    case "Union":
+                    case "Intersect":
+                    case "Except":
+                        throw new NotSupportedException($"Set operations are not supported in ksqlDB: {methodName}");
+                }
+
+                return base.VisitMethodCall(node);
+            }
+        }
+
+        /// <summary>
+        /// クエリ複雑度計算Visitor
+        /// </summary>
+        private class ComplexityCalculatorVisitor : ExpressionVisitor
+        {
+            public int ComplexityScore { get; private set; } = 0;
+
+            protected override Expression VisitMethodCall(MethodCallExpression node)
+            {
+                var methodName = node.Method.Name;
+
+                // メソッド種別による複雑度加算
+                switch (methodName)
+                {
+                    case "Where":
+                        ComplexityScore += 1;
+                        break;
+                    case "Select":
+                        ComplexityScore += 1;
+                        break;
+                    case "GroupBy":
+                        ComplexityScore += 3;
+                        break;
+                    case "Join":
+                        ComplexityScore += 5;
+                        break;
+                    case "Sum":
+                    case "Count":
+                    case "Max":
+                    case "Min":
+                    case "Average":
+                        ComplexityScore += 2;
+                        break;
+                    default:
+                        ComplexityScore += 1;
+                        break;
+                }
+
+                return base.VisitMethodCall(node);
+            }
+
+            protected override Expression VisitBinary(BinaryExpression node)
+            {
+                ComplexityScore += 1;
+                return base.VisitBinary(node);
+            }
+        }
+    }
+}
+
+// src/Query/EventSets/EventSet.cs - 統合ファサード
+using KsqlDsl.Modeling;
+using KsqlDsl.Query.Abstractions;
+using System;
+using System.Linq.Expressions;
+
+namespace KsqlDsl.Query.EventSets
+{
+    /// <summary>
+    /// EventSet統合ファサード - 既存APIとの互換性維持
+    /// 設計理由：分割後も既存コードが動作するよう互換性保持
+    /// </summary>
+    public class EventSet<T> : EventSetValidation<T> where T : class
+    {
+        internal EventSet(KafkaContext context, EntityModel entityModel) 
+            : base(context, entityModel) { }
+
+        internal EventSet(KafkaContext context, EntityModel entityModel, Expression expression) 
+            : base(context, entityModel, expression) { }
+
+        // ファクトリーメソッド - 将来的に他の実装に切り替え可能
+        public static EventSet<T> Create(KafkaContext context, EntityModel entityModel)
+        {
+            return new EventSet<T>(context, entityModel);
+        }
+
+        public static EventSet<T> Create(KafkaContext context, EntityModel entityModel, Expression expression)
+        {
+            return new EventSet<T>(context, entityModel, expression);
+        }
+
+        // 型変換メソッド - LINQ Extensions用
+        protected override IEventSet<TResult> CreateEventSet<TResult>(Expression expression)
+        {
+            return new EventSet<TResult>(_context, _entityModel, expression);
+        }
+
+        protected override IEventSet<T> CreateEventSet(Expression expression)
+        {
+            return new EventSet<T>(_context, _entityModel, expression);
+        }
+    }
+}
+```
+
+### 5️⃣ Builders層 - ビルダー統合と共通IF実装
+
+```csharp
+// src/Query/Builders/SelectBuilder.cs
+using System;
+using System.Linq.Expressions;
+using KsqlDsl.Query.Abstractions;
+
+namespace KsqlDsl.Query.Builders
+{
+    /// <summary>
+    /// SELECT句構築ビルダー
+    /// 設計理由：既存KsqlConditionBuilderの移動・統合
+    /// </summary>
+    public class SelectBuilder : IKsqlBuilder
+    {
+        public KsqlBuilderType BuilderType => KsqlBuilderType.Where;
+
+        public string Build(Expression expression)
+        {
+            var conditionBuilder = new KsqlDsl.Ksql.KsqlConditionBuilder();
+            return conditionBuilder.Build(expression);
+        }
+
+        /// <summary>
+        /// 条件のみ構築（WHERE プレフィックスなし）
+        /// </summary>
+        public string BuildCondition(Expression expression)
+        {
+            var conditionBuilder = new KsqlDsl.Ksql.KsqlConditionBuilder();
+            return conditionBuilder.BuildCondition(expression);
+        }
+    }
+}
+
+// src/Query/Builders/JoinBuilder.cs  
+using System;
+using System.Linq.Expressions;
+using KsqlDsl.Query.Abstractions;
+
+namespace KsqlDsl.Query.Builders
+{
+    /// <summary>
+    /// JOIN句構築ビルダー
+    /// </summary>
+    public class JoinBuilder : IKsqlBuilder
+    {
+        public KsqlBuilderType BuilderType => KsqlBuilderType.Join;
+
+        public string Build(Expression expression)
+        {
+            var joinBuilder = new KsqlDsl.Ksql.KsqlJoinBuilder();
+            return joinBuilder.Build(expression);
+        }
+    }
+}
+
+// src/Query/Builders/WindowBuilder.cs
+using System;
+using System.Linq.Expressions;
+using KsqlDsl.Query.Abstractions;
+
+namespace KsqlDsl.Query.Builders
+{
+    /// <summary>
+    /// WINDOW句構築ビルダー
+    /// </summary>
+    public class WindowBuilder : IKsqlBuilder
+    {
+        public KsqlBuilderType BuilderType => KsqlBuilderType.Window;
+
+        public string Build(Expression expression)
+        {
+            var windowBuilder = new KsqlDsl.Ksql.KsqlWindowBuilder();
+            return windowBuilder.Build(expression);
+        }
+    }
+}
+
+// src/Query/Builders/GroupByBuilder.cs
+using System;
+using System.Linq.Expressions;
+using KsqlDsl.Query.Abstractions;
+
+namespace KsqlDsl.Query.Builders
+{
+    /// <summary>
+    /// GROUP BY句構築ビルダー
+    /// </summary>
+    public class GroupByBuilder : IKsqlBuilder
+    {
+        public KsqlBuilderType BuilderType => KsqlBuilderType.GroupBy;
+
+        public string Build(Expression expression)
+        {
+            return KsqlDsl.Ksql.KsqlGroupByBuilder.Build(expression);
+        }
+    }
+}
+
+// src/Query/Builders/HavingBuilder.cs
+using System;
+using System.Linq.Expressions;
+using KsqlDsl.Query.Abstractions;
+
+namespace KsqlDsl.Query.Builders
+{
+    /// <summary>
+    /// HAVING句構築ビルダー
+    /// </summary>
+    public class HavingBuilder : IKsqlBuilder
+    {
+        public KsqlBuilderType BuilderType => KsqlBuilderType.Having;
+
+        public string Build(Expression expression)
+        {
+            var havingBuilder = new KsqlDsl.Ksql.KsqlHavingBuilder();
+            return havingBuilder.Build(expression);
+        }
+    }
+}
+
+// src/Query/Builders/ProjectionBuilder.cs
+using System;
+using System.Linq.Expressions;
+using KsqlDsl.Query.Abstractions;
+
+namespace KsqlDsl.Query.Builders
+{
+    /// <summary>
+    /// 射影（SELECT列）構築ビルダー
+    /// </summary>
+    public class ProjectionBuilder : IKsqlBuilder
+    {
+        public KsqlBuilderType BuilderType => KsqlBuilderType.Projection;
+
+        public string Build(Expression expression)
+        {
+            var projectionBuilder = new KsqlDsl.Ksql.KsqlProjectionBuilder();
+            return projectionBuilder.Build(expression);
+        }
+    }
+}
+
+// src/Query/Translation/QueryTranslator.cs - IQueryTranslator実装
+using System;
+using System.Linq.Expressions;
+using KsqlDsl.Query.Abstractions;
+
+namespace KsqlDsl.Query.Translation
+{
+    /// <summary>
+    /// QueryTranslatorの実装クラス
+    /// 設計理由：既存LinqToKsqlTranslatorをIQueryTranslator準拠で再構築
+    /// </summary>
+    public class QueryTranslator : IQueryTranslator
+    {
+        private readonly LinqExpressionAnalyzer _analyzer;
+        private readonly KsqlQueryBuilder _queryBuilder;
+        private readonly QueryDiagnostics _diagnostics;
+        
+        public QueryTranslator()
+        {
+            _analyzer = new LinqExpressionAnalyzer();
+            _queryBuilder = new KsqlQueryBuilder();
+            _diagnostics = new QueryDiagnostics();
+        }
+
+        public string ToKsql(Expression expression, string topicName, bool isPullQuery = false)
+        {
+            _diagnostics.LogStep("Translation started", new { TopicName = topicName, IsPullQuery = isPullQuery });
+            _diagnostics.SetMetadata("TopicName", topicName);
+            _diagnostics.SetMetadata("IsPullQuery", isPullQuery);
+
+            try
+            {
+                // 式木解析
+                _diagnostics.LogStep("Analyzing LINQ expression");
+                var analysisResult = _analyzer.Analyze(expression);
+                _diagnostics.SetMetadata("QueryType", analysisResult.QueryType);
+                _diagnostics.LogStep("Analysis completed", analysisResult.QueryType);
+
+                // KSQL構築
+                _diagnostics.LogStep("Building KSQL query");
+                var ksqlQuery = _queryBuilder.BuildQuery(analysisResult, topicName, isPullQuery);
+                _diagnostics.LogStep("KSQL built successfully", ksqlQuery.Length + " characters");
+
+                _diagnostics.MarkComplete();
+                return ksqlQuery;
+            }
+            catch (Exception ex)
+            {
+                _diagnostics.LogStep("Translation failed", ex.Message);
+                _diagnostics.MarkComplete();
+                throw;
+            }
+        }
+
+        public string GetDiagnostics()
+        {
+            return _diagnostics.GenerateReport();
+        }
+
+        public bool IsPullQuery()
+        {
+            return _diagnostics._metadata.TryGetValue("IsPullQuery", out var value) && (bool)value;
+        }
+    }
+}
+```
+
+## 📁 最終成果物構造
+
+```
+src/Query/
+├── Abstractions/
+│   ├── IQueryTranslator.cs      ✅ 完了
+│   ├── IEventSet<T>.cs          ✅ 完了
+│   └── IKsqlBuilder.cs          ✅ 完了
+├── Translation/
+│   ├── LinqExpressionAnalyzer.cs ✅ 完了
+│   ├── KsqlQueryBuilder.cs      ✅ 完了
+│   ├── QueryDiagnostics.cs      ✅ 完了
+│   └── QueryTranslator.cs       ✅ 完了
+├── EventSets/
+│   ├── EventSetCore<T>.cs       ✅ 完了
+│   ├── EventSetStreaming<T>.cs  ✅ 完了
+│   ├── EventSetValidation<T>.cs ✅ 完了
+│   └── EventSet<T>.cs           ✅ 完了 (統合ファサード)
+└── Builders/
+    ├── SelectBuilder.cs         ✅ 完了
+    ├── JoinBuilder.cs           ✅ 完了
+    ├── WindowBuilder.cs         ✅ 完了
+    ├── GroupByBuilder.cs        ✅ 完了
+    ├── HavingBuilder.cs         ✅ 完了
+    └── ProjectionBuilder.cs     ✅ 完了
+```
+
+## 🧪 テストへの影響と対応
+
+既存のテストとの互換性を保つため：
+
+1. **EventSet<T>は統合ファサードとして残存**
+2. **名前空間は段階的移行** (`using KsqlDsl;` → `using KsqlDsl.Query.EventSets;`)
+3. **既存LinqToKsqlTranslatorは非推奨マーク**で段階的移行
+4. **ToKsqlTests等は新しいQueryTranslatorでも動作**
+
+## ✅ 改善効果（

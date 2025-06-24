@@ -1,0 +1,77 @@
+Configuration層を**「各namespaceからの要求に応える窓口」**とする。不要な設定の削除、必要な設定の明示的設計、appsettings.jsonとの対応も整理。
+
+✅ ステップ 1：各namespaceの要求整理
+以下の要求をコード・設計で明示せよ：
+
+Messaging層
+
+KafkaBusOptions（ブローカー接続設定）
+
+TopicOptions（トピック接続設定）
+
+Serialization層
+
+AvroSchemaRegistryOptions（スキーマレジストリ設定）
+
+SchemaGenerationOptions（フィールド命名・null制御など）
+
+Monitoring層（整理後は統計のみに）
+
+残留する場合、BasicMetricsOptions のような最小構成を定義
+
+Core/Query層
+
+現時点で明示的要求なし（必要が発生したら都度定義）
+
+✅ ステップ 2：設定クラスの再配置
+Configuration/ 配下のクラスを 「要求に応じて」残す・削除
+
+appsettings.json 例に準拠した命名と階層設計
+
+例外なく、使用されていない設定クラスは削除対象
+
+✅ ステップ 3：appsettings.json テンプレート整備
+以下の構造で appsettings.Development.json を作成：
+
+json
+コピーする
+編集する
+{
+  "KsqlDsl": {
+    "Kafka": {
+      "BootstrapServers": "localhost:9092",
+      "RequestTimeoutMs": 30000
+    },
+    "Topics": {
+      "OrderStream": {
+        "TopicName": "orders",
+        "AutoOffsetReset": "Earliest"
+      }
+    },
+    "SchemaRegistry": {
+      "Url": "http://localhost:8081"
+    }
+  }
+}
+※ 上記はMessagingとSerializationに対応
+
+✅ ステップ 4：ログ出力ポリシー整備（補助タスク）
+ILoggerFactory の全体適用
+
+出力レベルの明示（Information / Debug / Warning）
+
+メッセージのテンプレート統一（"起動", "接続", "失敗", など）
+
+📝 補足
+MonitoringやTracingの統計的残骸をMessaging/Serializationに再配置済み
+
+OnModelCreating 時に必要なValidationとExceptionもConfigurationベースで発火可能
+
+📦 最終成果物（想定）
+src/Configuration/ … 必要設定のみが存在
+
+src/Messaging/Configuration/Requirements/ … 必要設定インターフェース
+
+appsettings.Development.json … 最小構成テンプレート
+
+ILoggerFactory … 全体に適用されたDI構成

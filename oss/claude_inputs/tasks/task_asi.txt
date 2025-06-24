@@ -1,0 +1,63 @@
+「x分足連続生成のためのHeartbeatトピック自動送信機能」実装依頼
+
+概要
+x分足などの時系列データ生成時に、元データtopicにデータが入らない場合でも「空白期間（空足）」が確実に作成されるよう、Window定義ごとにHeartbeatトピックを用意し、Entity側から毎秒ダミーレコードを自動送信する機能を実装してください。
+
+要件詳細
+Heartbeatトピックの仕様
+
+Kafka topic名：設定で指定可能（例：trade-heartbeat）
+
+メッセージKeyは "WindowType:yyyyMMddHHmmss" 形式（例：1min:20250624032315）
+
+Valueは必要最小限のメタ情報のみ（WindowType, Timestamp など）
+
+送信ロジック
+
+Windowを宣言したEntityごとに、IntervalSeconds間隔（通常1秒）で自動送信する
+
+複数podから同時送信されてもKafka上は最新1レコードのみ（Keyで上書き）となる
+
+Tickデータや取引のある場合もHeatbeat送信は継続（空白補完のため）
+
+設定例
+
+json
+コピーする
+編集する
+"Entities": [
+  {
+    "Entity": "TradeLogCandle",
+    "SourceTopic": "trade-raw",
+    "Windows": [1, 5, 15, 60, 240],
+    "Heartbeat": {
+      "Topic": "trade-heartbeat",
+      "IntervalSeconds": 1
+    }
+  }
+]
+運用・パフォーマンス考慮
+
+100pod以上の分散運用でも、Key重複によるKafka負荷増は無視できる設計
+
+実装側で「podごとに送信回避」等の複雑なLeader Electionや分散制御は不要
+
+テスト
+
+データの入らない区間でも各x分足が「空足」として必ず生成されること
+
+複数podからの同時送信で重複・過剰レコードが発生しないこと
+
+実装ヒント（サンプル）
+csharp
+コピーする
+編集する
+var key = $"{windowType}:{DateTime.UtcNow:yyyyMMddHHmmss}";
+producer.Produce("trade-heartbeat", new Message<string, Heartbeat> {
+    Key = key,
+    Value = new Heartbeat { WindowType = windowType, Timestamp = DateTime.UtcNow }
+});
+補足
+詳細仕様・設計方針はdocs_advanced_rules.md「4.3 Heartbeatトピック設計」を参照。
+
+実装の流れ・ロジックは必ず事前に1度レビューを受けること。

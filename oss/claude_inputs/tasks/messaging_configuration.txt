@@ -1,0 +1,37 @@
+鳴瀬へ
+
+以下の通り、KsqlDsl OSSのConfiguration層およびMessaging層の設計・責務を確定しました。
+
+【決定事項まとめ】
+主要な設定プロパティはすべて型プロパティ（Sectionクラスのプロパティ）として実装すること。
+
+将来的な拡張や運用上の柔軟性確保のため、各Section（Producer/Consumer/SchemaRegistryなど）にはAdditionalProperties（Dictionary型）も必ず持たせること。
+
+appsettings.jsonからのバインドは具象クラス（POCO/Section）で行うこと。interfaceでは直接バインドしないこと。
+
+各POCO/Sectionは対応するinterface（IProducerConfiguration等）を実装し、Messaging namespace（または他層）とのやりとりはinterface越しに行うこと。
+
+トピック単位でProducer/Consumer両方の設定を持ち、共通プロパティ（BootstrapServers, ClientIdなど）は“Common”としてまとめること。
+
+SchemaRegistryについても同様に、公式プロパティ＋追加プロパティ辞書で構成すること。
+
+ValidationModeはKsqlDslOptionsのプロパティとしてルートに持たせること。
+
+TopicSectionやProducerSection, ConsumerSectionなど、POCO/SectionクラスはMessaging.Configuration（またはInfrastructure.Configuration）に配置し、Abstractions（契約層）には含めないこと。
+
+Abstractionsはinterfaceのみを集約し、実装・構造データは持たせないこと。
+
+【設計の流れ】
+appsettings.json → POCO（Sectionクラス）へバインド（Messaging.Configurationで完結）
+
+Sectionクラスは対応interfaceを実装
+
+他レイヤ（Messaging.Coreなど）とのやりとりはinterface型のみ使用
+
+依存逆転・レイヤー責務分離を徹底すること
+
+以上の方針に従い、
+「POCOの設計」「appsettings.jsonサンプル」「interfaceの定義」「ディレクトリ/namespace構成」
+を作成・実装してください。
+
+迷った場合はこのメッセージを必ず参照し、司令（私）に都度確認してください。

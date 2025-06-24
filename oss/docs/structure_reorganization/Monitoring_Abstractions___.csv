@@ -1,0 +1,19 @@
+ファイル名,分類,Kafka重複懸念,目的の曖昧さ
+C:\dev\Refactor\src\Monitoring\Abstractions\IDiagnosticsProvider,Diagnostics,,
+C:\dev\Refactor\src\Monitoring\Abstractions\IMetricsCollector,Metrics,,
+C:\dev\Refactor\src\Monitoring\Abstractions\Models\CacheHealthReport,Health Report,,❓ 意図不明瞭の可能性
+C:\dev\Refactor\src\Monitoring\Abstractions\Models\ConsumerDiagnostics,Diagnostics,⚠️ Kafkaと重複の可能性,
+C:\dev\Refactor\src\Monitoring\Abstractions\Models\ConsumerEntityStats,Statistics,⚠️ Kafkaと重複の可能性,❓ 意図不明瞭の可能性
+C:\dev\Refactor\src\Monitoring\Abstractions\Models\ConsumerPerformanceStats,Statistics,⚠️ Kafkaと重複の可能性,❓ 意図不明瞭の可能性
+C:\dev\Refactor\src\Monitoring\Abstractions\Models\ConsumerPoolDiagnostics,Diagnostics,⚠️ Kafkaと重複の可能性,
+C:\dev\Refactor\src\Monitoring\Abstractions\Models\ConsumerPoolMetrics,Metrics,⚠️ Kafkaと重複の可能性,
+C:\dev\Refactor\src\Monitoring\Abstractions\Models\KafkaConsumerStats,Statistics,⚠️ Kafkaと重複の可能性,❓ 意図不明瞭の可能性
+C:\dev\Refactor\src\Monitoring\Abstractions\Models\KafkaDiagnostics,Diagnostics,⚠️ Kafkaと重複の可能性,
+C:\dev\Refactor\src\Monitoring\Abstractions\Models\KafkaHealthReport,Health Report,⚠️ Kafkaと重複の可能性,❓ 意図不明瞭の可能性
+C:\dev\Refactor\src\Monitoring\Abstractions\Models\KafkaMetrics,Metrics,⚠️ Kafkaと重複の可能性,
+C:\dev\Refactor\src\Monitoring\Abstractions\Models\KafkaPerformanceStats,Statistics,⚠️ Kafkaと重複の可能性,❓ 意図不明瞭の可能性
+C:\dev\Refactor\src\Monitoring\Abstractions\Models\KafkaProducerStats,Statistics,⚠️ Kafkaと重複の可能性,❓ 意図不明瞭の可能性
+C:\dev\Refactor\src\Monitoring\Abstractions\Models\PoolMetrics,Metrics,,
+C:\dev\Refactor\src\Monitoring\Abstractions\Models\ProducerEntityStats,Statistics,⚠️ Kafkaと重複の可能性,❓ 意図不明瞭の可能性
+C:\dev\Refactor\src\Monitoring\Abstractions\Models\ProducerPerformanceStats,Statistics,⚠️ Kafkaと重複の可能性,❓ 意図不明瞭の可能性
+C:\dev\Refactor\src\Monitoring\Abstractions\Models\SchemaGenerationStats,Statistics,,

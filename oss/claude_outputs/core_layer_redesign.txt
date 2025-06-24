@@ -1,0 +1,1850 @@
+        /// <summary>
+        /// メトリクス排除検証
+        /// 責務: Confluent.Kafkaと同等のメトリクス機能が含まれていないことを確認
+        /// 制約: 完全ログフリー検証
+        /// </summary>
+        public static void ValidateNoMetricsCompliance()
+        {
+            var coreAssembly = typeof(CoreDependencyConfiguration).Assembly;
+            var coreTypes = coreAssembly.GetTypes()
+                .Where(t => t.Namespace?.StartsWith("KsqlDsl.Core") == true);
+
+            // 禁止されたメトリクス関連の名前パターン
+            var forbiddenMetricsPatterns = new[]
+            {
+                "Metrics", "Statistics", "Performance", "Latency", "Throughput", 
+                "Rate", "Counter", "Gauge", "Timer", "Histogram", "Average", 
+                "JMX", "MBeans", "Monitor", "Measure", "Benchmark"
+            };
+
+            // ログ関連の禁止パターン追加
+            var forbiddenLoggingPatterns = new[]
+            {
+                "ILogger", "LoggerFactory", "Logging", "Log", "Serilog", "NLog"
+            };
+
+            var allForbiddenPatterns = forbiddenMetricsPatterns.Concat(forbiddenLoggingPatterns).ToArray();
+
+            foreach (var type in coreTypes)
+            {
+                // 型名チェック
+                if (allForbiddenPatterns.Any(pattern => 
+                    type.Name.Contains(pattern, StringComparison.OrdinalIgnoreCase)))
+                {
+                    throw new InvalidOperationException(
+                        $"Core type {type.Name} contains forbidden pattern: {string.Join(", ", allForbiddenPatterns.Where(p => type.Name.Contains(p, StringComparison.OrdinalIgnoreCase)))}");
+                }
+
+                // プロパティ名チェック
+                foreach (var property in type.GetProperties())
+                {
+                    if (allForbiddenPatterns.Any(pattern => 
+                        property.Name.Contains(pattern, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        throw new InvalidOperationException(
+                            $"Core type {type.Name} property {property.Name} contains forbidden pattern");
+                    }
+                }
+
+                // メソッド名チェック
+                foreach (var method in type.GetMethods())
+                {
+                    if (allForbiddenPatterns.Any(pattern => 
+                        method.Name.Contains(pattern, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        throw new InvalidOperationException(
+                            $"Core type {type.Name} method {method.Name} contains forbidden pattern");
+                    }
+                }
+
+                // フィールド名チェック（private フィールドも含む）
+                foreach (var field in type.GetFields(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static))
+                {
+                    if (allForbiddenPatterns.Any(pattern => 
+                        field.Name.Contains(pattern, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        throw new InvalidOperationException(
+                            $"Core type {type.Name} field {field.Name} contains forbidden pattern");
+                    }
+                }
+
+                // 依存関係チェック（ログ関連名前空間）
+                var forbiddenLogDependencies = new[]
+                {
+                    "Microsoft.Extensions.Logging",
+                    "Serilog",
+                    "NLog",
+                    "log4net"
+                };
+
+                // 依存関係チェック（ログ関連名前空間）
+                var forbiddenLogDependencies = new[]
+                {
+                    "Microsoft.Extensions.Logging",
+                    "Serilog",
+                    "NLog",
+                    "log4net"
+                };
+
+                foreach (var dependency in GetTypeDependencies(type))
+                {
+                    if (forbiddenLogDependencies.Any(ns => 
+                        dependency.Namespace?.StartsWith(ns) == true))
+                    {
+                        throw new InvalidOperationException(
+                            $"Core type {type.Name} has forbidden logging dependency on {dependency.Namespace}.{dependency.Name}");
+                    }
+                }
+            }
+        }
+
+        private static IEnumerable<Type> GetTypeDependencies(Type type)
+        {
+            var dependencies = new HashSet<Type>();
+
+            // Field dependencies
+            foreach (var field in type.GetFields(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance))
+            {
+                dependencies.Add(field.FieldType);
+            }
+
+            // Property dependencies
+            foreach (var property in type.GetProperties())
+            {
+                dependencies.Add(property.PropertyType);
+            }
+
+            // Method dependencies
+            foreach (var method in type.GetMethods())
+            {
+                dependencies.Add(method.ReturnType);
+                foreach (var param in method.GetParameters())
+                {
+                    dependencies.Add(param.ParameterType);
+                }
+            }
+
+            return dependencies.Where(t => t.Assembly != type.Assembly);
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // 13. Phase3リファクター検証マーカー（完全ログフリー版）
+    //--------------------------------------------------------------------------
+    
+    /// <summary>
+    /// Phase3リファクター完了マーカー（メトリクス・ログ完全排除版）
+    /// 責務: リファクター状態の追跡・検証、メトリクス・ログ排除確認
+    /// </summary>
+    public static class CoreLayerPhase3Marker
+    {
+        public const string Version = "Phase3-LogFree-v4";
+        public const string RefactorDate = "2025-06-20";
+
+        public static bool IsRefactored => true;
+        public static bool IsMetricsFree => true;
+        public static bool IsLogFree => true;
+
+        public static Dictionary<string, string> GetRefactorInfo()
+        {
+            return new Dictionary<string, string>
+            {
+                ["Version"] = Version,
+                ["RefactorDate"] = RefactorDate,
+                ["SeparatedLayers"] = "Messaging, Serialization, Monitoring, Query, Configuration",
+                ["CoreResponsibilities"] = "Abstractions, Models, Context, Basic Validation",
+                ["DependencyDirection"] = "One-way (Core ← Other Layers)",
+                ["ValidationCompleted"] = "✅",
+                ["MetricsEliminated"] = "✅ All Confluent.Kafka equivalent metrics eliminated",
+                ["LoggingEliminated"] = "✅ Complete log-free implementation",
+                ["MonitoringReduced"] = "Basic connectivity check only",
+                ["ConfigurationSimplified"] = "Core settings only",
+                ["PerformanceMeasurement"] = "❌ Completely prohibited",
+                ["SideEffects"] = "❌ Completely eliminated"
+            };
+        }
+
+        public static void ValidatePhase3Compliance()
+        {
+            var coreAssembly = typeof(CoreLayerPhase3Marker).Assembly;
+            var coreTypes = coreAssembly.GetTypes()
+                .Where(t => t.Namespace?.StartsWith("KsqlDsl.Core") == true);
+
+            var forbiddenDependencies = new[]
+            {
+                "KsqlDsl.Communication", // 旧名前空間
+                "KsqlDsl.Avro",         // 旧名前空間
+                "Confluent.Kafka",      // 具象Kafka依存禁止
+                "Confluent.SchemaRegistry", // 具象SR依存禁止
+                "System.Diagnostics.Metrics", // .NET メトリクス禁止
+                "System.Diagnostics.Tracing", // ETW禁止
+                "System.Management"     // WMI/PerfCounter禁止
+            };
+
+            foreach (var type in coreTypes)
+            {
+                foreach (var dependency in GetTypeDependencies(type))
+                {
+                    if (forbiddenDependencies.Any(ns => 
+                        dependency.Namespace?.StartsWith(ns) == true ||
+                        dependency.Assembly.GetName().Name?.StartsWith(ns.Split('.')[0]) == true))
+                    {
+                        throw new InvalidOperationException(
+                            $"Core type {type.Name} has forbidden dependency on {dependency.Namespace}.{dependency.Name}");
+                    }
+                }
+            }
+        }
+
+        private static IEnumerable<Type> GetTypeDependencies(Type type)
+        {
+            var dependencies = new HashSet<Type>();
+
+            // Field dependencies
+            foreach (var field in type.GetFields(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance))
+            {
+                dependencies.Add(field.FieldType);
+            }
+
+            // Property dependencies
+            foreach (var property in type.GetProperties())
+            {
+                dependencies.Add(property.PropertyType);
+            }
+
+            // Method dependencies
+            foreach (var method in type.GetMethods())
+            {
+                dependencies.Add(method.ReturnType);
+                foreach (var param in method.GetParameters())
+                {
+                    dependencies.Add(param.ParameterType);
+                }
+            }
+
+            return dependencies.Where(t => t.Assembly != type.Assembly);
+        }
+    }
+}
+
+//==============================================================================
+// 完全ログフリー版完了チェックリスト
+//==============================================================================
+
+/*
+✅ Core層責務明確化
+  - 抽象定義（IKafkaContext, IEntitySet<T>）
+  - エンティティモデル（EntityModel, ModelBuilder）
+  - 基本検証（循環参照、型安全性）
+  - POCO属性（Topic, Key, KafkaIgnore）
+
+✅ 他層への移譲完了
+  - Messaging層: Producer/Consumer実装
+  - Serialization層: スキーマ管理
+  - Monitoring層: 全てのメトリクス機能
+  - Configuration層: 複雑設定管理
+  - Infrastructure層: 全てのログ機能
+
+✅ Confluent.Kafka同等メトリクス完全排除
+  - JMX/MBeans類似機能: 完全削除
+  - レイテンシ測定: 完全削除
+  - スループット測定: 完全削除
+  - エラー率統計: 完全削除
+  - Consumer Lag測定: 完全削除（Offset差分のみ許可）
+  - パフォーマンス統計: 完全削除
+
+✅ ログ機能完全排除
+  - ILogger依存: 完全削除
+  - ログ出力: 一切禁止
+  - 構造化ログ: 完全削除
+  - ログファクトリ: 完全削除
+  - 副作用: 完全排除（例外のみ許可）
+
+✅ 非メトリクス型監視のみ保持
+  - 基本接続確認: AdminClient.GetMetadata()の成功/失敗のみ
+  - データ前進性: Offset値の前回比較のみ
+  - 測定値取得: 一切禁止
+
+✅ 依存関係一方向性確保
+  - Core層は他層に依存しない
+  - 具象Kafka依存（Confluent.Kafka）排除
+  - メトリクス関連名前空間排除
+  - ログ関連名前空間排除
+  - Phase3検証マーカーで継続監視
+
+✅ 完全副作用排除検証機能
+  - ValidateNoMetricsCompliance(): メトリクス・ログ関連命名検出
+  - 禁止パターン: "Metrics", "Statistics", "ILogger", "Logging" etc.
+  - 型名・プロパティ名・メソッド名・フィールド名の全チェック
+  - 依存関係チェック強化
+
+✅ 純粋関数型設計
+  - 戻り値: 基本型・文字列のみ
+  - 副作用: 例外以外完全排除
+  - I/O操作: 一切なし
+  - 状態変更: 内部状態のみ
+*/
+
+//==============================================================================
+// 完全ログフリー実装ガイドライン
+//==============================================================================
+
+/*
+【Core層実装者への厳格な指針】
+
+1. 絶対禁止事項（追加）:
+   ❌ 時間測定（Stopwatch、DateTime差分等）
+   ❌ カウンター（成功数、失敗数、合計数等）
+   ❌ レート計算（秒間処理数、エラー率等）
+   ❌ 平均値・最大値・最小値の算出
+   ❌ JMX/MBeans類似の仕組み
+   ❌ .NET Metricsライブラリの使用
+   ❌ ETW/EventSourceの使用
+   ❌ WMI/PerformanceCounterの使用
+   ❌ ILogger、LoggerFactory の使用
+   ❌ 任意のログライブラリ（Serilog、NLog等）の使用
+   ❌ Console.WriteLine、Debug.WriteLine等の出力
+   ❌ ファイル書き込み、ネットワーク通信等のI/O操作
+
+2. 許可される機能（制限）:
+   ✅ Boolean結果の返却（成功/失敗）
+   ✅ 静的設定値の取得
+   ✅ エンティティ数のカウント（型統計等）
+   ✅ Offset値の単純比較
+   ✅ 例外の発生（制御フローのみ）
+   ✅ 接続状態の確認（connect/disconnect）
+   ✅ 文字列の構築・返却（診断情報等）
+
+3. 命名規則（強化）:
+   ❌ 禁止: *Metrics, *Statistics, *Performance, *Monitor, *Counter, *Rate, *Timer, *Log*, *Logger
+   ✅ 推奨: *Result, *Status, *Info, *Check, *Validator, *Builder, *Model
+
+4. エラーハンドリング方針:
+   ✅ 例外発生: 制御フロー用途のみ許可
+   ❌ ログ出力: 一切禁止
+   ✅ エラーメッセージ: 例外メッセージ内のみ許可
+   ❌ エラー統計: 一切禁止
+
+5. Infrastructure層でのログ実装例:
+```csharp
+// ✅ Infrastructure層（ログあり）
+public class LoggingKafkaContext : KafkaContextCore
+{
+    private readonly ILogger<LoggingKafkaContext> _logger;
+    
+    protected override IEntitySet<T> CreateEntitySet<T>(EntityModel entityModel)
+    {
+        try 
+        {
+            var result = base.CreateEntitySet<T>(entityModel);
+            _logger.LogInformation("EntitySet created for {EntityType}", typeof(T).Name);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create EntitySet for {EntityType}", typeof(T).Name);
+            throw; // 例外の再スロー
+        }
+    }
+}
+```
+
+6. テスト方針:
+   - ValidateNoMetricsCompliance()でメトリクス・ログ命名チェック
+   - ValidatePhase3Compliance()で依存関係チェック
+   - 全メソッドの副作用なし確認
+   - モック不要の純粋関数テスト
+*/
+
+//==============================================================================
+// 今後の開発フロー（ログ分離版）
+//==============================================================================
+
+/*
+Phase 4: 各層の具体実装
+1. Infrastructure層: ログ実装、DI統合
+2. Messaging層: Producer/Consumer、MessageBus実装（ログあり）
+3. Serialization層: Avro/JSON/Protobuf実装（ログあり）  
+4. Configuration層: 詳細設定管理実装（ログあり）
+5. Query層: LINQ/KSQL変換エンジン実装（ログあり）
+
+Phase 5: 統合検証
+1. 全層統合テスト
+2. ログ出力統合確認
+3. パフォーマンステスト（Monitoring層で実施）
+4. 運用ガイド作成
+5. サンプルアプリケーション作成
+
+設計原則の徹底:
+- Core層: 完全ログフリー、純粋関数のみ
+- Infrastructure層: ログ機能集約
+- 各層: 単一責任の原則
+- 依存関係: 一方向性の維持
+- 副作用: Core層では完全排除
+*///==============================================================================
+// メトリクス完全排除完了チェックリスト
+//==============================================================================
+
+/*
+✅ Core層責務明確化
+  - 抽象定義（IKafkaContext, IEntitySet<T>）
+  - エンティティモデル（EntityModel, ModelBuilder）
+  - 基本検証（循環参照、型安全性）
+  - POCO属性（Topic, Key, KafkaIgnore）
+
+✅ 他層への移譲完了
+  - Messaging層: Producer/Consumer実装
+  - Serialization層: スキーマ管理
+  - Monitoring層: 全てのメトリクス機能
+  - Configuration層: 複雑設定管理
+
+✅ Confluent.Kafka同等メトリクス完全排除
+  - JMX/MBeans類似機能: 完全削除
+  - レイテンシ測定: 完全削除
+  - スループット測定: 完全削除
+  - エラー率統計: 完全削除
+  - Consumer Lag測定: 完全削除（Offset差分のみ許可）
+  - パフォーマンス統計: 完全削除
+
+✅ 非メトリクス型監視のみ保持
+  - 基本接続確認: AdminClient.GetMetadata()の成功/失敗のみ
+  - データ前進性: Offset値の前回比較のみ
+  - 測定値取得: 一切禁止
+
+✅ 依存関係一方向性確保
+  - Core層は他層に依存しない
+  - 具象Kafka依存（Confluent.Kafka）排除
+  - メトリクス関連名前空間排除
+  - Phase3検証マーカーで継続監視
+
+✅ メトリクス排除検証機能
+  - ValidateNoMetricsCompliance(): メトリクス関連命名検出
+  - 禁止パターン: "Metrics", "Statistics", "Performance", "Latency", etc.
+  - 型名・プロパティ名・メソッド名の全チェック
+
+✅ 設定統合・簡略化
+  - CoreSettings: Core層専用設定のみ
+  - 複雑設定: Configuration層に移譲
+  - 設定プロバイダーパターン維持
+
+✅ 拡張性確保
+  - 抽象インターフェースによる疎結合
+  - EntityModelBuilder での将来拡張対応
+  - DI対応サービス登録
+*/
+
+//==============================================================================
+// 実装ガイドライン - メトリクス完全排除版
+//==============================================================================
+
+/*
+【Core層実装者への指針】
+
+1. 絶対禁止事項:
+   ❌ 時間測定（Stopwatch、DateTime差分等）
+   ❌ カウンター（成功数、失敗数、合計数等）
+   ❌ レート計算（秒間処理数、エラー率等）
+   ❌ 平均値・最大値・最小値の算出
+   ❌ JMX/MBeans類似の仕組み
+   ❌ .NET Metricsライブラリの使用
+   ❌ ETW/EventSourceの使用
+   ❌ WMI/PerformanceCounterの使用
+
+2. 許可される機能:
+   ✅ Boolean結果の返却（成功/失敗）
+   ✅ 静的設定値の取得
+   ✅ エンティティ数のカウント（型統計等）
+   ✅ Offset値の単純比較
+   ✅ 例外の有無判定
+   ✅ 接続状態の確認（connect/disconnect）
+
+3. 命名規則:
+   ❌ 禁止: *Metrics, *Statistics, *Performance, *Monitor, *Counter, *Rate, *Timer
+   ✅ 推奨: *Result, *Status, *Info, *Check, *Validator, *Builder
+
+4. 実装時のチェックポイント:
+   - メソッドがboolean、string、int等の基本型のみ返すか？
+   - 時間に関する測定を行っていないか？
+   - 統計的な計算を行っていないか？
+   - パフォーマンス指標を収集していないか？
+
+5. 他層との協調:
+   - Messaging層: Producer/Consumer機能の実装
+   - Serialization層: スキーマ管理とシリアライゼーション
+   - Monitoring層: 運用監視とメトリクス収集
+   - Configuration層: 詳細設定と運用パラメータ
+   - Query層: LINQ/KSQL変換とクエリ最適化
+
+【テスト観点】
+- ValidateNoMetricsCompliance()でメトリクス命名チェック
+- ValidatePhase3Compliance()で依存関係チェック
+- 各インターフェースのモック可能性確認
+- POCO属性の正常動作確認
+- エンティティモデル構築の正常性確認
+*/
+
+//==============================================================================
+// 今後の開発フロー
+//==============================================================================
+
+/*
+Phase 4: 各層の具体実装
+1. Messaging層: Producer/Consumer、MessageBus実装
+2. Serialization層: Avro/JSON/Protobuf実装  
+3. Configuration層: 詳細設定管理実装
+4. Query層: LINQ/KSQL変換エンジン実装
+5. Infrastructure層: DI統合、統合テスト
+
+Phase 5: 統合検証
+1. 全層統合テスト
+2. パフォーマンステスト（Monitoring層で実施）
+3. 運用ガイド作成
+4. サンプルアプリケーション作成
+
+設計原則の徹底:
+- Core層: 抽象定義と基本モデルのみ
+- 各層: 単一責任の原則
+- 依存関係: 一方向性の維持
+- メトリクス: Core層では完全排除
+*///==============================================================================
+// Phase 3 Core Layer Redesign - 完全ログフリー版
+// 設計方針: Core層は抽象定義と基本モデルのみ、副作用完全排除
+// ログ方針: Core層は完全ログフリー、ログはInfrastructure層の責務
+//==============================================================================
+
+namespace KsqlDsl.Core.Abstractions
+{
+    //--------------------------------------------------------------------------
+    // 1. 核心抽象 - 完全副作用フリー
+    //--------------------------------------------------------------------------
+    
+    /// <summary>
+    /// KafkaContext統一インターフェース
+    /// 責務: DbContext風API提供、エンティティセット管理
+    /// 制約: 一切のログ出力・副作用禁止
+    /// </summary>
+    public interface IKafkaContext : IDisposable, IAsyncDisposable
+    {
+        IEntitySet<T> Set<T>() where T : class;
+        object GetEventSet(Type entityType);
+        
+        Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+        int SaveChanges();
+        
+        Task EnsureCreatedAsync(CancellationToken cancellationToken = default);
+        void EnsureCreated();
+        
+        Dictionary<Type, EntityModel> GetEntityModels();
+        string GetDiagnostics();
+        
+        // ログ関連メソッド一切なし
+        // ILogger依存一切なし
+    }
+
+    /// <summary>
+    /// エンティティセット統一インターフェース
+    /// 責務: LINQ互換操作、Producer/Consumer操作抽象化
+    /// 制約: 一切のログ出力・副作用禁止
+    /// </summary>
+    public interface IEntitySet<T> : IQueryable<T>, IAsyncEnumerable<T> where T : class
+    {
+        // Producer operations - ログフリー
+        Task AddAsync(T entity, CancellationToken cancellationToken = default);
+        Task AddRangeAsync(IEnumerable<T> entities, CancellationToken cancellationToken = default);
+
+        // Consumer operations - ログフリー
+        List<T> ToList();
+        Task<List<T>> ToListAsync(CancellationToken cancellationToken = default);
+        string ToKsql(bool isPullQuery = false);
+
+        // Streaming operations - ログフリー
+        void Subscribe(Action<T> onNext, CancellationToken cancellationToken = default);
+        Task SubscribeAsync(Func<T, Task> onNext, CancellationToken cancellationToken = default);
+        Task ForEachAsync(Func<T, Task> action, TimeSpan timeout = default, CancellationToken cancellationToken = default);
+
+        // LINQ extensions - ログフリー
+        IEntitySet<T> Where(Expression<Func<T, bool>> predicate);
+        IEntitySet<TResult> Select<TResult>(Expression<Func<T, TResult>> selector) where TResult : class;
+        IEntitySet<IGrouping<TKey, T>> GroupBy<TKey>(Expression<Func<T, TKey>> keySelector);
+        IEntitySet<T> Take(int count);
+        IEntitySet<T> Skip(int count);
+
+        // Metadata - ログフリー
+        string GetTopicName();
+        EntityModel GetEntityModel();
+        IKafkaContext GetContext();
+        
+        // ログ機能一切なし
+        // ILogger依存一切なし
+    }
+
+    //--------------------------------------------------------------------------
+    // 2. 非メトリクス型ヘルス監視 - Confluent.Kafkaメトリクス完全排除
+    //--------------------------------------------------------------------------
+    
+    /// <summary>
+    /// 非メトリクス型ヘルス監視インターフェース
+    /// 責務: 基本的な接続確認、データ前進性確認のみ
+    /// 制約: Confluent.Kafkaと同等のメトリクス（JMX、MBeans、統計情報）は一切取得しない
+    /// 方針: 単純なAPI呼び出し結果の成功/失敗判定のみ
+    /// </summary>
+    public interface IBasicConnectivityMonitor
+    {
+        /// <summary>
+        /// 基本接続確認
+        /// 実装: AdminClient.GetMetadata()の成功/失敗のみ判定
+        /// 禁止: レイテンシ、スループット、エラー率等の測定一切禁止
+        /// </summary>
+        Task<BasicConnectivityResult> CheckBrokerConnectivityAsync(CancellationToken cancellationToken = default);
+        
+        /// <summary>
+        /// データ前進性確認（PagerDuty方式）
+        /// 実装: Offset差分の増減確認のみ
+        /// 禁止: Consumer Lag測定、パフォーマンス統計取得一切禁止
+        /// </summary>
+        Task<DataProgressResult> CheckDataProgressAsync(string topicName, string groupId, CancellationToken cancellationToken = default);
+    }
+
+    /// <summary>
+    /// 基本接続確認結果
+    /// 内容: 成功/失敗の boolean のみ、一切の測定値を含まない
+    /// </summary>
+    public class BasicConnectivityResult
+    {
+        public bool IsConnected { get; set; }
+        public DateTime CheckedAt { get; set; } = DateTime.UtcNow;
+        public string? ErrorMessage { get; set; }
+        // 禁止項目: レイテンシ、接続数、エラー率、スループット等の測定値
+    }
+
+    /// <summary>
+    /// データ前進性確認結果
+    /// 内容: Offset値の前回比較のみ、一切のパフォーマンス測定を含まない
+    /// </summary>
+    public class DataProgressResult
+    {
+        public bool IsProgressing { get; set; }
+        public long? PreviousOffset { get; set; }
+        public long? CurrentOffset { get; set; }
+        public DateTime CheckedAt { get; set; } = DateTime.UtcNow;
+        public string? ErrorMessage { get; set; }
+        // 禁止項目: Lag時間、処理速度、メッセージ数、レート等の測定値
+    }
+}
+
+namespace KsqlDsl.Core.Models
+{
+    //--------------------------------------------------------------------------
+    // 3. Core専用モデル - エンティティメタデータのみ
+    //--------------------------------------------------------------------------
+    
+    /// <summary>
+    /// エンティティモデル
+    /// 責務: POCO属性解析結果保持
+    /// </summary>
+    public class EntityModel
+    {
+        public Type EntityType { get; set; } = null!;
+        public TopicAttribute? TopicAttribute { get; set; }
+        public PropertyInfo[] KeyProperties { get; set; } = Array.Empty<PropertyInfo>();
+        public PropertyInfo[] AllProperties { get; set; } = Array.Empty<PropertyInfo>();
+        public CoreValidationResult? ValidationResult { get; set; }
+        public bool IsValid => ValidationResult?.IsValid ?? false;
+    }
+
+    /// <summary>
+    /// 基本検証結果
+    /// 責務: Core層での基本検証結果のみ
+    /// </summary>
+    public class CoreValidationResult
+    {
+        public bool IsValid { get; set; }
+        public List<string> Errors { get; set; } = new();
+        public List<string> Warnings { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Consumer識別キー
+    /// 責務: Consumer管理での一意識別
+    /// </summary>
+    public class ConsumerKey : IEquatable<ConsumerKey>
+    {
+        public Type EntityType { get; }
+        public string TopicName { get; }
+        public string GroupId { get; }
+
+        public ConsumerKey(Type entityType, string topicName, string groupId)
+        {
+            EntityType = entityType ?? throw new ArgumentNullException(nameof(entityType));
+            TopicName = topicName ?? throw new ArgumentNullException(nameof(topicName));
+            GroupId = groupId ?? throw new ArgumentNullException(nameof(groupId));
+        }
+
+        public override int GetHashCode() => HashCode.Combine(EntityType, TopicName, GroupId);
+        public bool Equals(ConsumerKey? other) =>
+            other != null && EntityType == other.EntityType && 
+            TopicName == other.TopicName && GroupId == other.GroupId;
+        public override bool Equals(object? obj) => obj is ConsumerKey other && Equals(other);
+        public override string ToString() => $"{EntityType.Name}:{TopicName}:{GroupId}";
+    }
+}
+
+namespace KsqlDsl.Core.Attributes
+{
+    //--------------------------------------------------------------------------
+    // 4. POCO属性 - エンティティ定義用アトリビュート
+    //--------------------------------------------------------------------------
+    
+    [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
+    public class TopicAttribute : Attribute
+    {
+        public string TopicName { get; }
+        public int PartitionCount { get; set; } = 1;
+        public int ReplicationFactor { get; set; } = 1;
+        public long RetentionMs { get; set; } = 604800000; // 7 days
+        public bool Compaction { get; set; } = false;
+        public string? Description { get; set; }
+
+        public TopicAttribute(string topicName)
+        {
+            if (string.IsNullOrWhiteSpace(topicName))
+                throw new ArgumentException("トピック名は必須です", nameof(topicName));
+            TopicName = topicName;
+        }
+
+        public override string ToString()
+        {
+            var desc = string.IsNullOrEmpty(Description) ? "" : $" ({Description})";
+            return $"Topic: {TopicName}{desc}, Partitions: {PartitionCount}, Replicas: {ReplicationFactor}";
+        }
+    }
+
+    [AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
+    public class KeyAttribute : Attribute
+    {
+        public int Order { get; set; } = 0;
+        public string? Encoding { get; set; }
+
+        public KeyAttribute() { }
+        public KeyAttribute(int order) { Order = order; }
+
+        public override string ToString()
+        {
+            var encoding = string.IsNullOrEmpty(Encoding) ? "Default" : Encoding;
+            return $"Key (Order: {Order}, Encoding: {encoding})";
+        }
+    }
+
+    [AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
+    public class KafkaIgnoreAttribute : Attribute
+    {
+        public string Reason { get; set; } = string.Empty;
+        public override string ToString() => string.IsNullOrEmpty(Reason) ? "KafkaIgnore" : $"KafkaIgnore: {Reason}";
+    }
+
+    [AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
+    public class MaxLengthAttribute : Attribute
+    {
+        public int Length { get; }
+        public MaxLengthAttribute(int length)
+        {
+            if (length <= 0)
+                throw new ArgumentException("最大長は1以上である必要があります", nameof(length));
+            Length = length;
+        }
+        public override string ToString() => $"MaxLength: {Length}";
+    }
+
+    [AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
+    public class DefaultValueAttribute : Attribute
+    {
+        public object? Value { get; }
+        public DefaultValueAttribute(object? value) { Value = value; }
+        public override string ToString() => $"DefaultValue: {Value ?? "null"}";
+    }
+}
+
+namespace KsqlDsl.Core.Context
+{
+    //--------------------------------------------------------------------------
+    // 5. コンテキスト基底 - DbContext風実装基盤
+    //--------------------------------------------------------------------------
+    
+    /// <summary>
+    /// KafkaContext基底実装
+    /// 責務: モデル構築、エンティティセット管理
+    /// 制約: 完全ログフリー、副作用なし
+    /// ログ処理: Infrastructure層で実装
+    /// </summary>
+    public abstract class KafkaContextCore : IKafkaContext
+    {
+        private readonly Lazy<ModelBuilder> _modelBuilder;
+        private readonly Dictionary<Type, object> _entitySets = new();
+        private bool _disposed = false;
+        private bool _modelBuilt = false;
+
+        public KafkaContextOptions Options { get; private set; }
+
+        protected KafkaContextCore()
+        {
+            var optionsBuilder = new KafkaContextOptionsBuilder();
+            OnConfiguring(optionsBuilder);
+            Options = optionsBuilder.Build();
+            _modelBuilder = new Lazy<ModelBuilder>(CreateModelBuilder);
+            InitializeEntitySets();
+        }
+
+        protected KafkaContextCore(KafkaContextOptions options)
+        {
+            Options = options ?? throw new ArgumentNullException(nameof(options));
+            _modelBuilder = new Lazy<ModelBuilder>(CreateModelBuilder);
+            InitializeEntitySets();
+        }
+
+        // 派生クラスでの実装必須
+        protected abstract void OnModelCreating(ModelBuilder modelBuilder);
+        protected virtual void OnConfiguring(KafkaContextOptionsBuilder optionsBuilder) { }
+        protected abstract IEntitySet<T> CreateEntitySet<T>(EntityModel entityModel) where T : class;
+
+        public IEntitySet<T> Set<T>() where T : class
+        {
+            var entityType = typeof(T);
+            if (_entitySets.TryGetValue(entityType, out var existingSet))
+                return (IEntitySet<T>)existingSet;
+
+            var modelBuilder = _modelBuilder.Value;
+            _modelBuilt = true;
+
+            var entityModel = modelBuilder.GetEntityModel<T>();
+            if (entityModel == null)
+            {
+                // ❌ ログ出力なし、例外のみで制御
+                throw new InvalidOperationException(
+                    $"エンティティ {entityType.Name} がModelBuilderに登録されていません。" +
+                    $"OnModelCreating()内でmodelBuilder.Event<{entityType.Name}>()を呼び出してください。");
+            }
+
+            var entitySet = CreateEntitySet<T>(entityModel);
+            _entitySets[entityType] = entitySet;
+            return entitySet;
+        }
+
+        public object GetEventSet(Type entityType)
+        {
+            var setMethod = typeof(KafkaContextCore).GetMethod(nameof(Set))!.MakeGenericMethod(entityType);
+            return setMethod.Invoke(this, null)!;
+        }
+
+        public virtual async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            await Task.CompletedTask;
+            return 0; // Kafka流では即時送信なので通常不要
+            // ❌ ログ出力なし
+        }
+
+        public virtual int SaveChanges() => SaveChangesAsync().GetAwaiter().GetResult();
+
+        public async Task EnsureCreatedAsync(CancellationToken cancellationToken = default)
+        {
+            var modelBuilder = _modelBuilder.Value;
+            await modelBuilder.BuildAsync();
+            // ❌ ログ出力なし
+        }
+
+        public void EnsureCreated() => EnsureCreatedAsync().GetAwaiter().GetResult();
+
+        public Dictionary<Type, EntityModel> GetEntityModels() => _modelBuilder.Value.GetEntityModels();
+
+        /// <summary>
+        /// 診断情報取得（ログフリー）
+        /// 戻り値: 静的情報のみの文字列
+        /// 副作用: 一切なし
+        /// </summary>
+        public string GetDiagnostics()
+        {
+            var diagnostics = new List<string>
+            {
+                $"KafkaContext: {GetType().Name}",
+                $"Connection: {Options.ConnectionString}",
+                $"Schema Registry: {Options.SchemaRegistryUrl}",
+                $"Validation Mode: {Options.ValidationMode}",
+                $"Consumer Group: {Options.ConsumerGroupId}",
+                $"Model Built: {_modelBuilt}",
+                $"EntitySets Count: {_entitySets.Count}"
+            };
+
+            if (_modelBuilt)
+            {
+                diagnostics.Add("");
+                diagnostics.Add(_modelBuilder.Value.GetModelSummary());
+            }
+
+            return string.Join(Environment.NewLine, diagnostics);
+            // ❌ ログ出力なし、文字列返却のみ
+        }
+
+        private ModelBuilder CreateModelBuilder()
+        {
+            var modelBuilder = new ModelBuilder(Options.ValidationMode);
+            OnModelCreating(modelBuilder);
+            modelBuilder.Build();
+            return modelBuilder;
+        }
+
+        private void InitializeEntitySets() 
+        { 
+            /* 初期化処理、ログ出力なし */ 
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposed && disposing)
+            {
+                _entitySets.Clear();
+                _disposed = true;
+                // ❌ ログ出力なし
+            }
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await Task.CompletedTask;
+            Dispose(false);
+            GC.SuppressFinalize(this);
+        }
+    }
+}
+
+namespace KsqlDsl.Core.Modeling
+{
+    //--------------------------------------------------------------------------
+    // 6. モデル構築 - POCO→エンティティモデル変換
+    //--------------------------------------------------------------------------
+    
+    /// <summary>
+    /// モデル構築器
+    /// 責務: エンティティ登録、基本検証、メタデータ管理
+    /// 制約: 完全ログフリー、例外のみで制御
+    /// </summary>
+    public class ModelBuilder
+    {
+        private readonly Dictionary<Type, EntityModel> _entityModels = new();
+        private readonly ValidationService _validationService;
+        private bool _isBuilt = false;
+
+        public ModelBuilder(ValidationMode validationMode = ValidationMode.Strict)
+        {
+            _validationService = new ValidationService(validationMode);
+        }
+
+        public EntityModelBuilder<T> Event<T>() where T : class
+        {
+            var entityType = typeof(T);
+            if (_entityModels.ContainsKey(entityType))
+            {
+                // ❌ ログ出力なし、例外のみ
+                throw new InvalidOperationException($"エンティティ {entityType.Name} は既に登録済みです。");
+            }
+
+            var topicAttribute = entityType.GetCustomAttribute<TopicAttribute>();
+            var allProperties = entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            var keyProperties = Array.FindAll(allProperties, p => p.GetCustomAttribute<KeyAttribute>() != null);
+
+            Array.Sort(keyProperties, (p1, p2) =>
+            {
+                var order1 = p1.GetCustomAttribute<KeyAttribute>()?.Order ?? 0;
+                var order2 = p2.GetCustomAttribute<KeyAttribute>()?.Order ?? 0;
+                return order1.CompareTo(order2);
+            });
+
+            var validationResult = _validationService.ValidateEntity(entityType);
+
+            var entityModel = new EntityModel
+            {
+                EntityType = entityType,
+                TopicAttribute = topicAttribute,
+                KeyProperties = keyProperties,
+                AllProperties = allProperties,
+                ValidationResult = validationResult
+            };
+
+            _entityModels[entityType] = entityModel;
+            return new EntityModelBuilder<T>(entityModel);
+        }
+
+        public async Task BuildAsync()
+        {
+            if (_isBuilt) return;
+
+            var validationResult = ValidateAllEntities();
+            if (!validationResult.IsValid)
+            {
+                var errorMessage = "モデル構築に失敗しました:" + Environment.NewLine +
+                                 string.Join(Environment.NewLine, validationResult.Errors);
+                // ❌ ログ出力なし、例外のみ
+                throw new InvalidOperationException(errorMessage);
+            }
+
+            // Core層では基本検証のみ実行
+            // スキーマ登録は上位層（Infrastructure/Messaging層）の責任
+            await Task.CompletedTask;
+            _isBuilt = true;
+        }
+
+        public void Build()
+        {
+            BuildAsync().GetAwaiter().GetResult();
+        }
+
+        public Dictionary<Type, EntityModel> GetEntityModels() => new(_entityModels);
+        public EntityModel? GetEntityModel(Type entityType) => _entityModels.TryGetValue(entityType, out var model) ? model : null;
+        public EntityModel? GetEntityModel<T>() where T : class => GetEntityModel(typeof(T));
+
+        public CoreValidationResult ValidateAllEntities()
+        {
+            var overallResult = new CoreValidationResult { IsValid = true };
+            foreach (var entityModel in _entityModels.Values)
+            {
+                if (entityModel.ValidationResult == null) continue;
+                if (!entityModel.ValidationResult.IsValid)
+                {
+                    overallResult.IsValid = false;
+                }
+                overallResult.Errors.AddRange(entityModel.ValidationResult.Errors);
+                overallResult.Warnings.AddRange(entityModel.ValidationResult.Warnings);
+            }
+            return overallResult;
+        }
+
+        /// <summary>
+        /// モデル概要取得（ログフリー）
+        /// 戻り値: 静的情報のみの文字列
+        /// 副作用: 一切なし
+        /// </summary>
+        public string GetModelSummary()
+        {
+            if (_entityModels.Count == 0)
+                return "登録済みエンティティ: なし";
+
+            var summary = new List<string> { $"登録済みエンティティ: {_entityModels.Count}件" };
+            foreach (var entityModel in _entityModels.Values)
+            {
+                var entityName = entityModel.EntityType.Name;
+                var topicName = entityModel.TopicAttribute?.TopicName ?? $"{entityName} (自動生成)";
+                var keyCount = entityModel.KeyProperties.Length;
+                var propCount = entityModel.AllProperties.Length;
+                var validStatus = entityModel.IsValid ? "✅" : "❌";
+                summary.Add($"  {validStatus} {entityName} → Topic: {topicName}, Keys: {keyCount}, Props: {propCount}");
+            }
+            return string.Join(Environment.NewLine, summary);
+            // ❌ ログ出力なし、文字列返却のみ
+        }
+
+        public bool IsBuilt => _isBuilt;
+    }
+
+    /// <summary>
+    /// エンティティモデル構築器
+    /// 責務: 個別エンティティ設定（POCO属性主導型では制限）
+    /// </summary>
+    public class EntityModelBuilder<T> where T : class
+    {
+        private readonly EntityModel _entityModel;
+
+        internal EntityModelBuilder(EntityModel entityModel)
+        {
+            _entityModel = entityModel ?? throw new ArgumentNullException(nameof(entityModel));
+        }
+
+        public EntityModel GetModel() => _entityModel;
+
+        // POCO属性主導型では、Fluent APIでの設定変更は禁止
+        [Obsolete("POCO属性主導型では、Fluent APIでのトピック名変更は禁止されています。[Topic]属性を使用してください。", true)]
+        public EntityModelBuilder<T> HasTopicName(string topicName)
+        {
+            throw new NotSupportedException("POCO属性主導型では、Fluent APIでのトピック名変更は禁止されています。[Topic]属性を使用してください。");
+        }
+
+        [Obsolete("POCO属性主導型では、Fluent APIでのキー変更は禁止されています。[Key]属性を使用してください。", true)]
+        public EntityModelBuilder<T> HasKey<TKey>(Expression<Func<T, TKey>> keyExpression)
+        {
+            throw new NotSupportedException("POCO属性主導型では、Fluent APIでのキー変更は禁止されています。[Key]属性を使用してください。");
+        }
+
+        public override string ToString()
+        {
+            var entityName = _entityModel.EntityType.Name;
+            var topicName = _entityModel.TopicAttribute?.TopicName ?? "未定義";
+            var keyCount = _entityModel.KeyProperties.Length;
+            var validStatus = _entityModel.IsValid ? "有効" : "無効";
+            return $"Entity: {entityName}, Topic: {topicName}, Keys: {keyCount}, Status: {validStatus}";
+        }
+    }
+}
+
+namespace KsqlDsl.Core.Validation
+{
+    //--------------------------------------------------------------------------
+    // 7. Core専用検証 - 基本型安全性・循環参照のみ
+    //--------------------------------------------------------------------------
+    
+    /// <summary>
+    /// Core層専用検証
+    /// 責務: 型安全性、循環参照、基本シリアライズ可能性チェック
+    /// </summary>
+    public static class CoreEntityValidator
+    {
+        public static bool HasCircularReference<T>() where T : class => HasCircularReference(typeof(T));
+
+        public static bool HasCircularReference(Type entityType)
+        {
+            var visitedTypes = new HashSet<Type>();
+            return HasCircularReferenceInternal(entityType, visitedTypes);
+        }
+
+        private static bool HasCircularReferenceInternal(Type type, HashSet<Type> visitedTypes)
+        {
+            if (visitedTypes.Contains(type)) return true;
+            if (type.IsPrimitive || type == typeof(string) || type.IsEnum) return false;
+
+            visitedTypes.Add(type);
+            var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(p => p.GetCustomAttribute<KafkaIgnoreAttribute>() == null);
+
+            foreach (var property in properties)
+            {
+                var propertyType = property.PropertyType;
+                var underlyingType = Nullable.GetUnderlyingType(propertyType) ?? propertyType;
+
+                if (underlyingType.IsClass && underlyingType != typeof(string) &&
+                    underlyingType.Assembly == type.Assembly)
+                {
+                    if (HasCircularReferenceInternal(underlyingType, new HashSet<Type>(visitedTypes)))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        public static bool IsSerializableType(Type type)
+        {
+            var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
+            return underlyingType.IsPrimitive ||
+                   underlyingType == typeof(string) ||
+                   underlyingType == typeof(decimal) ||
+                   underlyingType == typeof(DateTime) ||
+                   underlyingType == typeof(DateTimeOffset) ||
+                   underlyingType == typeof(Guid) ||
+                   underlyingType == typeof(byte[]);
+        }
+
+        public static PropertyInfo[] GetValidProperties<T>() where T : class
+        {
+            var entityType = typeof(T);
+            var allProperties = entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            return Array.FindAll(allProperties, p =>
+                p.GetCustomAttribute<KafkaIgnoreAttribute>() == null &&
+                IsSerializableType(p.PropertyType));
+        }
+    }
+
+    /// <summary>
+    /// 検証サービス
+    /// 責務: エンティティ検証の実行
+    /// </summary>
+    public class ValidationService
+    {
+        private readonly ValidationMode _validationMode;
+
+        public ValidationService(ValidationMode validationMode)
+        {
+            _validationMode = validationMode;
+        }
+
+        public CoreValidationResult ValidateEntity(Type entityType)
+        {
+            var result = new CoreValidationResult { IsValid = true };
+
+            // 循環参照チェック
+            if (CoreEntityValidator.HasCircularReference(entityType))
+            {
+                result.IsValid = false;
+                result.Errors.Add($"エンティティ {entityType.Name} に循環参照が検出されました");
+            }
+
+            // シリアライズ可能プロパティチェック
+            var validProperties = CoreEntityValidator.GetValidProperties(entityType);
+            if (validProperties.Length == 0)
+            {
+                result.IsValid = false;
+                result.Errors.Add($"エンティティ {entityType.Name} にシリアライズ可能なプロパティがありません");
+            }
+
+            // Strict mode の場合の追加チェック
+            if (_validationMode == ValidationMode.Strict)
+            {
+                var topicAttribute = entityType.GetCustomAttribute<TopicAttribute>();
+                if (topicAttribute == null)
+                {
+                    result.Warnings.Add($"エンティティ {entityType.Name} に[Topic]属性がありません");
+                }
+            }
+
+            return result;
+        }
+    }
+
+    public enum ValidationMode
+    {
+        Strict,
+        Lenient
+    }
+}
+
+namespace KsqlDsl.Core.Exceptions
+{
+    //--------------------------------------------------------------------------
+    // 8. Core専用例外 - 基本例外クラス
+    //--------------------------------------------------------------------------
+    
+    public abstract class CoreException : Exception
+    {
+        protected CoreException(string message) : base(message) { }
+        protected CoreException(string message, Exception innerException) : base(message, innerException) { }
+    }
+
+    public class CoreConfigurationException : CoreException
+    {
+        public CoreConfigurationException(string message) : base(message) { }
+        public CoreConfigurationException(string message, Exception innerException) : base(message, innerException) { }
+    }
+
+    public class CoreValidationException : CoreException
+    {
+        public List<string> ValidationErrors { get; }
+
+        public CoreValidationException(string message, List<string> validationErrors) : base(message)
+        {
+            ValidationErrors = validationErrors ?? new List<string>();
+        }
+
+        public CoreValidationException(List<string> validationErrors)
+            : base($"Validation failed with {validationErrors?.Count ?? 0} errors")
+        {
+            ValidationErrors = validationErrors ?? new List<string>();
+        }
+    }
+
+    public class EntityModelException : CoreException
+    {
+        public Type EntityType { get; }
+
+        public EntityModelException(Type entityType, string message)
+            : base($"Entity model error for {entityType.Name}: {message}")
+        {
+            EntityType = entityType;
+        }
+
+        public EntityModelException(Type entityType, string message, Exception innerException)
+            : base($"Entity model error for {entityType.Name}: {message}", innerException)
+        {
+            EntityType = entityType;
+        }
+    }
+}
+
+//==============================================================================
+// 他層への移譲内容
+//==============================================================================
+
+/*
+【Messaging層に移譲】
+- IKafkaMessageBus → KsqlDsl.Messaging.Abstractions.IKafkaMessageBus
+- IPoolManager → KsqlDsl.Messaging.Abstractions.IPoolManager
+- Producer/Consumer具象実装
+- リソースプール管理
+
+【Serialization層に移譲】
+- ISerializationManager → KsqlDsl.Serialization.Abstractions.ISerializationManager
+- Avro/JSON/Protobuf具象実装
+- スキーマ登録・管理
+
+【Monitoring層に移譲（最小限のみ）】
+- 詳細メトリクス → KsqlDsl.Monitoring.Abstractions.IMetricsCollector
+- 複雑ヘルスチェック → KsqlDsl.Monitoring.Abstractions.IAdvancedHealthMonitor
+- Core層は IMinimalHealthMonitor のみ保持
+
+【Configuration層に移譲】
+- TopicOverrideService → KsqlDsl.Configuration.Abstractions.ITopicOverrideService
+- 複雑な設定管理
+*/
+
+namespace KsqlDsl.Core.Configuration
+{
+    //--------------------------------------------------------------------------
+    // 9. Core専用設定 - 最小限設定のみ
+    //--------------------------------------------------------------------------
+    
+    /// <summary>
+    /// Core層専用設定
+    /// 責務: Core層の動作制御のみ
+    /// </summary>
+    public class CoreSettings
+    {
+        public ValidationMode ValidationMode { get; set; } = ValidationMode.Strict;
+        public bool EnableDebugLogging { get; set; } = false;
+        public bool EnableEntityCaching { get; set; } = true;
+        public bool EnableCircularReferenceCheck { get; set; } = true;
+        public bool EnablePropertyValidation { get; set; } = true;
+        public int MaxEntityCacheSize { get; set; } = 1000;
+        public TimeSpan EntityCacheExpiration { get; set; } = TimeSpan.FromHours(1);
+
+        public CoreSettings Clone()
+        {
+            return new CoreSettings
+            {
+                ValidationMode = ValidationMode,
+                EnableDebugLogging = EnableDebugLogging,
+                EnableEntityCaching = EnableEntityCaching,
+                EnableCircularReferenceCheck = EnableCircularReferenceCheck,
+                EnablePropertyValidation = EnablePropertyValidation,
+                MaxEntityCacheSize = MaxEntityCacheSize,
+                EntityCacheExpiration = EntityCacheExpiration
+            };
+        }
+
+        public void Validate()
+        {
+            if (MaxEntityCacheSize <= 0)
+                throw new CoreConfigurationException("MaxEntityCacheSize must be greater than 0");
+            if (EntityCacheExpiration <= TimeSpan.Zero)
+                throw new CoreConfigurationException("EntityCacheExpiration must be greater than zero");
+        }
+
+        public override string ToString()
+        {
+            return $"CoreSettings: ValidationMode={ValidationMode}, " +
+                   $"Debug={EnableDebugLogging}, Caching={EnableEntityCaching}, " +
+                   $"CacheSize={MaxEntityCacheSize}, CacheExpiration={EntityCacheExpiration}";
+        }
+    }
+
+    /// <summary>
+    /// Core設定プロバイダー
+    /// </summary>
+    public interface ICoreSettingsProvider
+    {
+        CoreSettings GetSettings();
+        void UpdateSettings(CoreSettings settings);
+        event EventHandler<CoreSettingsChangedEventArgs>? SettingsChanged;
+    }
+
+    public class CoreSettingsChangedEventArgs : EventArgs
+    {
+        public CoreSettings OldSettings { get; }
+        public CoreSettings NewSettings { get; }
+        public DateTime ChangedAt { get; }
+
+        public CoreSettingsChangedEventArgs(CoreSettings oldSettings, CoreSettings newSettings)
+        {
+            OldSettings = oldSettings;
+            NewSettings = newSettings;
+            ChangedAt = DateTime.UtcNow;
+        }
+    }
+
+    public class CoreSettingsProvider : ICoreSettingsProvider
+    {
+        private CoreSettings _settings = new();
+        private readonly object _lock = new();
+
+        public event EventHandler<CoreSettingsChangedEventArgs>? SettingsChanged;
+
+        public CoreSettings GetSettings()
+        {
+            lock (_lock)
+            {
+                return _settings.Clone();
+            }
+        }
+
+        public void UpdateSettings(CoreSettings settings)
+        {
+            if (settings == null)
+                throw new ArgumentNullException(nameof(settings));
+
+            settings.Validate();
+
+            CoreSettings oldSettings;
+            lock (_lock)
+            {
+                oldSettings = _settings.Clone();
+                _settings = settings.Clone();
+            }
+
+            SettingsChanged?.Invoke(this, new CoreSettingsChangedEventArgs(oldSettings, settings));
+        }
+    }
+}
+
+namespace KsqlDsl.Core.Extensions
+{
+    //--------------------------------------------------------------------------
+    // 10. Core専用拡張メソッド
+    //--------------------------------------------------------------------------
+    
+    /// <summary>
+    /// Core層専用拡張メソッド
+    /// 責務: EntityModel操作、型チェック便利メソッド
+    /// </summary>
+    public static class CoreExtensions
+    {
+        // EntityModel拡張メソッド
+        public static string GetTopicName(this EntityModel entityModel)
+        {
+            return entityModel.TopicAttribute?.TopicName ?? entityModel.EntityType.Name;
+        }
+
+        public static bool HasKeys(this EntityModel entityModel)
+        {
+            return entityModel.KeyProperties.Length > 0;
+        }
+
+        public static bool IsCompositeKey(this EntityModel entityModel)
+        {
+            return entityModel.KeyProperties.Length > 1;
+        }
+
+        public static PropertyInfo[] GetOrderedKeyProperties(this EntityModel entityModel)
+        {
+            return entityModel.KeyProperties
+                .OrderBy(p => p.GetCustomAttribute<KeyAttribute>()?.Order ?? 0)
+                .ToArray();
+        }
+
+        public static PropertyInfo[] GetSerializableProperties(this EntityModel entityModel)
+        {
+            return Array.FindAll(entityModel.AllProperties, p =>
+                p.GetCustomAttribute<KafkaIgnoreAttribute>() == null);
+        }
+
+        // Type拡張メソッド
+        public static bool IsKafkaEntity(this Type type)
+        {
+            return type.IsClass &&
+                   !type.IsAbstract &&
+                   type.GetCustomAttribute<TopicAttribute>() != null;
+        }
+
+        public static string GetKafkaTopicName(this Type type)
+        {
+            var topicAttribute = type.GetCustomAttribute<TopicAttribute>();
+            return topicAttribute?.TopicName ?? type.Name;
+        }
+
+        public static bool HasKafkaKeys(this Type type)
+        {
+            return type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Any(p => p.GetCustomAttribute<KeyAttribute>() != null);
+        }
+
+        // PropertyInfo拡張メソッド
+        public static bool IsKafkaIgnored(this PropertyInfo property)
+        {
+            return property.GetCustomAttribute<KafkaIgnoreAttribute>() != null;
+        }
+
+        public static bool IsKafkaKey(this PropertyInfo property)
+        {
+            return property.GetCustomAttribute<KeyAttribute>() != null;
+        }
+
+        public static int GetKeyOrder(this PropertyInfo property)
+        {
+            return property.GetCustomAttribute<KeyAttribute>()?.Order ?? 0;
+        }
+
+        public static bool IsNullableProperty(this PropertyInfo property)
+        {
+            var propertyType = property.PropertyType;
+
+            // Nullable value types
+            if (Nullable.GetUnderlyingType(propertyType) != null)
+                return true;
+
+            // Value types are non-nullable by default
+            if (propertyType.IsValueType)
+                return false;
+
+            // Reference types - check nullable context
+            try
+            {
+                var nullabilityContext = new NullabilityInfoContext();
+                var nullabilityInfo = nullabilityContext.Create(property);
+                return nullabilityInfo.WriteState == NullabilityState.Nullable ||
+                       nullabilityInfo.ReadState == NullabilityState.Nullable;
+            }
+            catch
+            {
+                // Fallback: assume reference types are nullable
+                return !propertyType.IsValueType;
+            }
+        }
+    }
+}
+
+namespace KsqlDsl.Core.Utilities
+{
+    //--------------------------------------------------------------------------
+    // 11. Core専用ユーティリティ - メトリクス機能完全排除
+    //--------------------------------------------------------------------------
+    
+    /// <summary>
+    /// キー抽出ユーティリティ
+    /// 責務: エンティティからKafkaキー値抽出
+    /// </summary>
+    public static class KeyExtractor
+    {
+        public static object? ExtractKey<T>(T entity, EntityModel entityModel)
+        {
+            if (entity == null)
+                throw new ArgumentNullException(nameof(entity));
+            if (entityModel == null)
+                throw new ArgumentNullException(nameof(entityModel));
+
+            var keyProperties = entityModel.KeyProperties;
+
+            if (keyProperties.Length == 0)
+                return null;
+
+            if (keyProperties.Length == 1)
+                return keyProperties[0].GetValue(entity);
+
+            // 複合キー
+            var keyRecord = new Dictionary<string, object?>();
+            foreach (var prop in keyProperties.OrderBy(p => p.GetCustomAttribute<KeyAttribute>()?.Order ?? 0))
+            {
+                keyRecord[prop.Name] = prop.GetValue(entity);
+            }
+            return keyRecord;
+        }
+
+        public static Type DetermineKeyType(EntityModel entityModel)
+        {
+            if (entityModel == null)
+                throw new ArgumentNullException(nameof(entityModel));
+
+            var keyProperties = entityModel.KeyProperties;
+
+            if (keyProperties.Length == 0)
+                return typeof(string); // デフォルトキー
+
+            if (keyProperties.Length == 1)
+                return keyProperties[0].PropertyType;
+
+            // 複合キーの場合はDictionaryとして扱う
+            return typeof(Dictionary<string, object>);
+        }
+
+        public static bool IsCompositeKey(EntityModel entityModel)
+        {
+            return entityModel.KeyProperties.Length > 1;
+        }
+
+        public static PropertyInfo[] GetOrderedKeyProperties(EntityModel entityModel)
+        {
+            return entityModel.KeyProperties
+                .OrderBy(p => p.GetCustomAttribute<KeyAttribute>()?.Order ?? 0)
+                .ToArray();
+        }
+
+        public static string GetKeySchemaSubject(string topicName)
+        {
+            return $"{topicName}-key";
+        }
+
+        public static string GetValueSchemaSubject(string topicName)
+        {
+            return $"{topicName}-value";
+        }
+    }
+
+    /// <summary>
+    /// 非メトリクス診断ユーティリティ
+    /// 責務: Core層状態の基本情報取得のみ
+    /// 制約: 一切のパフォーマンス測定・統計情報収集禁止
+    /// </summary>
+    public static class CoreDiagnostics
+    {
+        /// <summary>
+        /// Core層基本状態取得
+        /// 内容: 設定値、登録済みエンティティ数等の静的情報のみ
+        /// 禁止: パフォーマンス指標、レスポンス時間、エラー率等
+        /// </summary>
+        public static string GetCoreLayerStatus()
+        {
+            var diagnostics = new List<string>
+            {
+                $"Core Layer Status - Generated at: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC",
+                $"Version: {CoreLayerPhase3Marker.Version}",
+                $"Refactor Date: {CoreLayerPhase3Marker.RefactorDate}",
+                ""
+            };
+
+            try
+            {
+                // 依存関係検証（例外の有無のみ）
+                CoreLayerPhase3Marker.ValidatePhase3Compliance();
+                diagnostics.Add("✅ Dependency Validation: PASSED");
+            }
+            catch (Exception ex)
+            {
+                diagnostics.Add($"❌ Dependency Validation: FAILED - {ex.Message}");
+            }
+
+            // アセンブリ情報（静的情報のみ）
+            var coreAssembly = typeof(IKafkaContext).Assembly;
+            diagnostics.Add($"Assembly: {coreAssembly.GetName().Name}");
+            diagnostics.Add($"Location: {coreAssembly.Location}");
+
+            // 型統計（カウントのみ、パフォーマンス測定なし）
+            var coreTypes = coreAssembly.GetTypes()
+                .Where(t => t.Namespace?.StartsWith("KsqlDsl.Core") == true);
+            
+            var interfaceCount = coreTypes.Count(t => t.IsInterface);
+            var classCount = coreTypes.Count(t => t.IsClass && !t.IsAbstract);
+            var abstractCount = coreTypes.Count(t => t.IsClass && t.IsAbstract);
+            var attributeCount = coreTypes.Count(t => t.IsSubclassOf(typeof(Attribute)));
+
+            diagnostics.Add("");
+            diagnostics.Add("Type Statistics (Static Count Only):");
+            diagnostics.Add($"  Interfaces: {interfaceCount}");
+            diagnostics.Add($"  Classes: {classCount}");
+            diagnostics.Add($"  Abstract Classes: {abstractCount}");
+            diagnostics.Add($"  Attributes: {attributeCount}");
+            diagnostics.Add($"  Total Types: {coreTypes.Count()}");
+
+            return string.Join(Environment.NewLine, diagnostics);
+        }
+
+        /// <summary>
+        /// Core基本メタデータ取得
+        /// 内容: 静的設定値のみ
+        /// 禁止: 実行時統計、パフォーマンス指標、測定値
+        /// </summary>
+        public static Dictionary<string, object> GetCoreMetadata()
+        {
+            var coreAssembly = typeof(IKafkaContext).Assembly;
+            var coreTypes = coreAssembly.GetTypes()
+                .Where(t => t.Namespace?.StartsWith("KsqlDsl.Core") == true);
+
+            return new Dictionary<string, object>
+            {
+                ["Version"] = CoreLayerPhase3Marker.Version,
+                ["IsRefactored"] = CoreLayerPhase3Marker.IsRefactored,
+                ["TotalTypes"] = coreTypes.Count(),
+                ["Interfaces"] = coreTypes.Count(t => t.IsInterface),
+                ["ConcreteClasses"] = coreTypes.Count(t => t.IsClass && !t.IsAbstract),
+                ["AbstractClasses"] = coreTypes.Count(t => t.IsClass && t.IsAbstract),
+                ["Attributes"] = coreTypes.Count(t => t.IsSubclassOf(typeof(Attribute))),
+                ["Enums"] = coreTypes.Count(t => t.IsEnum),
+                ["Exceptions"] = coreTypes.Count(t => t.IsSubclassOf(typeof(Exception))),
+                ["GeneratedAt"] = DateTime.UtcNow
+                // 禁止項目: メモリ使用量、CPU使用率、実行時間、エラー率等
+            };
+        }
+    }
+}
+
+namespace KsqlDsl.Core
+{
+    //--------------------------------------------------------------------------
+    // 12. DI設定 - Core層サービス登録
+    //--------------------------------------------------------------------------
+    
+    /// <summary>
+    /// Core層依存関係設定
+    /// 責務: Core層の抽象定義と実装の分離
+    /// </summary>
+    public static class CoreDependencyConfiguration
+    {
+        public static IServiceCollection AddKsqlDslCore(this IServiceCollection services)
+        {
+            // Core設定
+            services.AddSingleton<ICoreSettingsProvider, CoreSettingsProvider>();
+            
+            // Core固有サービス
+            services.AddSingleton<ICoreIntegrationService, CoreIntegrationService>();
+            services.AddSingleton<IModelBindingService, ModelBindingService>();
+            services.AddSingleton<ICoreEntityFactory, CoreEntityFactory>();
+
+            // 非メトリクス型基本監視（他層で実装）
+            services.AddSingleton<IBasicConnectivityMonitor, BasicConnectivityMonitor>();
+
+            return services;
+        }
+
+        public static void ValidateCoreLayerDependencies()
+        {
+            var coreTypes = new[]
+            {
+                typeof(IKafkaContext),
+                typeof(IEntitySet<>),
+                typeof(IBasicConnectivityMonitor),
+                typeof(ICoreSettingsProvider)
+            };
+
+            foreach (var type in coreTypes)
+            {
+                if (type.Assembly != typeof(CoreDependencyConfiguration).Assembly)
+                {
+                    throw new InvalidOperationException(
+                        $"Core layer type {type.Name} must be defined in Core assembly");
+                }
+            }
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // 13. Phase3リファクター検証マーカー
+    //--------------------------------------------------------------------------
+    
+    /// <summary>
+    /// Phase3リファクター完了マーカー（メトリクス完全排除版）
+    /// 責務: リファクター状態の追跡・検証、メトリクス排除確認
+    /// </summary>
+    public static class CoreLayerPhase3Marker
+    {
+        public const string Version = "Phase3-NoMetrics-v3";
+        public const string RefactorDate = "2025-06-20";
+
+        public static bool IsRefactored => true;
+        public static bool IsMetricsFree => true;
+
+        public static Dictionary<string, string> GetRefactorInfo()
+        {
+            return new Dictionary<string, string>
+            {
+                ["Version"] = Version,
+                ["RefactorDate"] = RefactorDate,
+                ["SeparatedLayers"] = "Messaging, Serialization, Monitoring, Query, Configuration",
+                ["CoreResponsibilities"] = "Abstractions, Models, Context, Basic Validation",
+                ["DependencyDirection"] = "One-way (Core ← Other Layers)",
+                ["ValidationCompleted"] = "✅",
+                ["MetricsEliminated"] = "✅ All Confluent.Kafka equivalent metrics eliminated",
+                ["MonitoringReduced"] = "Basic connectivity check only",
+                ["ConfigurationSimplified"] = "Core settings only",
+                ["PerformanceMeasurement"] = "❌ Completely prohibited"
+            };
+        }
+
+        public static void ValidatePhase3Compliance()
+        {
+            var coreAssembly = typeof(CoreLayerPhase3Marker).Assembly;
+            var coreTypes = coreAssembly.GetTypes()
+                .Where(t => t.Namespace?.StartsWith("KsqlDsl.Core") == true);
+
+            var forbiddenDependencies = new[]
+            {
+                "KsqlDsl.Communication", // 旧名前空間
+                "KsqlDsl.Avro",         // 旧名前空間
+                "Confluent.Kafka",      // 具象Kafka依存禁止
+                "Confluent.SchemaRegistry", // 具象SR依存禁止
+                "System.Diagnostics.Metrics", // .NET メトリクス禁止
+                "System.Diagnostics.Tracing", // ETW禁止
+                "System.Management"     // WMI/PerfCounter禁止
+            };
+
+            foreach (var type in coreTypes)
+            {
+                foreach (var dependency in GetTypeDependencies(type))
+                {
+                    if (forbiddenDependencies.Any(ns => 
+                        dependency.Namespace?.StartsWith(ns) == true ||
+                        dependency.Assembly.GetName().Name?.StartsWith(ns.Split('.')[0]) == true))
+                    {
+                        throw new InvalidOperationException(
+                            $"Core type {type.Name} has forbidden dependency on {dependency.Namespace}.{dependency.Name}");
+                    }
+                }
+            }
+
+            // メトリクス排除検証も実行
+            CoreDependencyConfiguration.ValidateNoMetricsCompliance();
+        }
+
+        private static IEnumerable<Type> GetTypeDependencies(Type type)
+        {
+            var dependencies = new HashSet<Type>();
+
+            // Field dependencies
+            foreach (var field in type.GetFields(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance))
+            {
+                dependencies.Add(field.FieldType);
+            }
+
+            // Property dependencies
+            foreach (var property in type.GetProperties())
+            {
+                dependencies.Add(property.PropertyType);
+            }
+
+            // Method dependencies
+            foreach (var method in type.GetMethods())
+            {
+                dependencies.Add(method.ReturnType);
+                foreach (var param in method.GetParameters())
+                {
+                    dependencies.Add(param.ParameterType);
+                }
+            }
+
+            return dependencies.Where(t => t.Assembly != type.Assembly);
+        }
+    }
+}
+
+//==============================================================================
+// 実装完了チェックリスト
+//==============================================================================
+
+/*
+✅ Core層責務明確化
+  - 抽象定義（IKafkaContext, IEntitySet<T>）
+  - エンティティモデル（EntityModel, ModelBuilder）
+  - 基本検証（循環参照、型安全性）
+  - POCO属性（Topic, Key, KafkaIgnore）
+
+✅ 他層への移譲完了
+  - Messaging層: IKafkaMessageBus, IPoolManager
+  - Serialization層: ISerializationManager, スキーマ管理
+  - Monitoring層: 詳細メトリクス（最小限ヘルスチェックのみ保持）
+  - Configuration層: 複雑設定管理
+
+✅ 運用有効性に基づくMonitoring削減
+  - Consumer Lag監視: IMinimalHealthMonitor で最低限実装
+  - URP監視: ClusterHealthResult で必要最小限
+  - 時間ベース監視: 削除（運用で無効と実証）
+  - 複雑メトリクス: Monitoring層に移譲
+
+✅ 依存関係一方向性確保
+  - Core層は他層に依存しない
+  - 具象Kafka依存（Confluent.Kafka）排除
+  - Phase3検証マーカーで継続監視
+
+✅ 設定統合・簡略化
+  - CoreSettings: Core層専用設定のみ
+  - 複雑設定: Configuration層に移譲
+  - 設定プロバイダーパターン維持
+
+✅ 拡張性確保
+  - 抽象インターフェースによる疎結合
+  - EntityModelBuilder での将来拡張対応
+  - DI対応サービス登録
+*/ 

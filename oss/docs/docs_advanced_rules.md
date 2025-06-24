@@ -56,6 +56,38 @@ KafkaやksqlDBで予約されているキーワードはトピック名に使用
 2. 原因分析と修正（スキーマ更新、データ修正など）  
 3. 元トピックまたは専用リトライトピックへ再投入  
 
+#### DLQの構成単位に関するポリシー
+
+DLQはトピックごとに個別に持たず、システム全体で1つの共通DLQトピックを使用します。  
+個別管理を避ける理由は以下の通りです：
+
+- 再処理運用上、失敗原因の多くが**構造的に共通**であり、個別トピックに分離する意味が薄い
+- トピック別DLQにすると、**監視・通知・再送設計が煩雑化**する
+- 共通DLQ内に `sourceTopic` 等のメタ情報を付与することで**セグメント的な扱いが可能**
+
+この設計により、**シンプルで安定した障害対応基盤**を維持しつつ、スケーラビリティも確保できます。
+
+#### DLQトピック名の命名ルール
+
+DLQトピックはシステム全体で1つに統一されることを前提とし、以下のような命名をデフォルトとします。
+
+- デフォルト命名：`system.dlq`
+- 環境ごとの識別が必要な場合は `system.dlq.dev` や `system.dlq.prd` の形式を使用
+- 命名は小文字・ピリオド区切り・英数字のみ
+
+> ※ この命名規則はデフォルトであり、`appsettings.json` または任意の構成ファイルにて上書き可能です。
+
+構成例：
+
+```json
+{
+  "Messaging": {
+    "Dlq": {
+      "Topic": "custom-app.dlq"
+    }
+  }
+}
+
 ---
 
 ## 4. ストリーム/テーブル判定ロジック詳細
@@ -74,6 +106,120 @@ KafkaやksqlDBで予約されているキーワードはトピック名に使用
 
 - `.AsStream()`や`.AsTable()`は解析結果の上書きを目的としており、優先度は高いです。  
 - これらは内部的にフラグとして保存され、クエリ生成時に反映されます。
+
+### 4.1 Window設計・マルチWindowパターン
+1つのPOCOエンティティに対して、複数のウィンドウ（例：1, 5, 15, 60, 240分足）を同時適用できる。
+
+設定ファイルの Windows 配列に指定することで、1つのKafkaトピック（例：trade-raw）から複数のWindow型StateStore（RocksDB）が自動生成される。
+
+これによりPOCO定義の重複を防ぎ、運用負荷を低減できる。
+
+### 4.2 命名規則（マルチWindow対応）
+各StateStoreは自動的に {Entity名}_{Window値}min_Store 形式で命名される（例：TradeLogCandle_5min_Store）。
+
+物理ディレクトリ名も同様に小文字化・記号変換したパターン（例：tradelogcandle_5min_store）。
+
+設定で個別に StoreName を指定することで上書きも可能。
+
+Kafka topic名は、1つの生データtopic（例：trade-raw）から複数のWindowが生成される場合、topic名はそのまま・Windowの識別はStore名で区別。
+
+Window設計・マルチWindowパターン
+
+1 POCO に対して複数 Window（例：1, 5, 15, 60, 240分足）を同時適用できる
+
+設定ファイルの Windows 配列により 1 topic から複数の Window StateStore を自動生成
+
+POCO重複を防ぎ運用負荷を低減
+
+命名規則
+
+自動的に {Entity名}_{Window値}min_Store
+
+物理名は小文字・記号変換
+
+topic名は生データtopicをそのまま使い、WindowはStore名で区別
+
+さらに反映推奨する記述（宣言とアクセスの一貫性）
+宣言（設定ファイル）もWindow、アクセス（IF）もWindow
+
+例：context.TradeLogCandles.Window(5)
+
+宣言・アクセスの一貫性を強調
+
+追加例文案（追記用）
+設定例：
+
+```json
+"Entities": [
+  {
+    "Entity": "TradeLogCandle",
+    "SourceTopic": "trade-raw",
+    "Windows": [1, 5, 15],
+    "StoreType": "RocksDb"
+  }
+]
+```
+アクセス例：
+
+```csharp
+var oneMin = context.TradeLogCandles.Window(1).ToList();
+var fiveMin = context.TradeLogCandles.Window(5).Where(...);
+```
+設定のWindow宣言とアクセスのWindow指定が一致し、拡張時も一貫した運用が可能。
+
+4.3 x分足連続生成のためのHeartbeatトピック設計
+背景と目的
+x分足などの時系列ウィンドウデータは、元データトピック（例：trade-raw）に取引がない時間帯があると「空白期間」が発生し、足データの欠損となる。
+
+これを防ぐため、Heartbeatトピックを新設し、Window定義ごとに毎秒ダミーレコードを送信する。
+
+設計詳細
+Heartbeat送信はWindowを宣言したEntity側が自動的に行う。
+
+KafkaのHeartbeatトピックは
+Key = {WindowType}:{yyyyMMddHHmmss} 形式（秒単位の丸め）で送信される。
+
+複数podから同時送信されても、Kafka側でKeyが同一なら最新の1つだけが有効。
+
+これにより、どんな分散運用でも「1秒につき1レコード」のみ維持され、負荷・重複送信を最小限に。
+
+利用イメージ
+Heartbeatレコードは「時刻」＋「WindowType」など最低限の情報のみ
+
+足生成処理はHeatbeatも取り込むことで、取引のなかった期間の“空足”も確実に生成
+
+TickデータはTickトピックでそのまま流し、Heatbeat対象外とする
+
+サンプル構成
+json
+コピーする
+編集する
+"Entities": [
+  {
+    "Entity": "TradeLogCandle",
+    "SourceTopic": "trade-raw",
+    "Windows": [1, 5, 15, 60, 240],
+    "Heartbeat": {
+      "Topic": "trade-heartbeat",
+      "IntervalSeconds": 1
+    }
+  }
+]
+サンプルコード（C#）
+csharp
+コピーする
+編集する
+var key = $"{windowType}:{DateTime.UtcNow:yyyyMMddHHmmss}";
+producer.Produce("trade-heartbeat", new Message<string, Heartbeat> {
+    Key = key,
+    Value = new Heartbeat { WindowType = windowType, Timestamp = DateTime.UtcNow }
+});
+注意・運用ポイント
+Keyの丸め単位は「秒」とすることで、秒足にも柔軟対応
+
+足データは、Heatbeatがあることで常に連続時系列となり、グラフや集計でも“欠損穴”を生じにくい
+
+100pod以上の分散環境でも負荷増加は無視できるレベル
 
 ---
 ## 5. ストリームとテーブルの簡単判定ルール
