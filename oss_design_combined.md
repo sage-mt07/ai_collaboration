@@ -58,7 +58,7 @@ KSQL Entity Frameworkは、C#プログラマがEntityFrameworkライクなAPIを
 [Topic("topic-name")]	|Kafkaトピック名の指定（Partitions, Replicationも設定可能）
 [KsqlStream] / [KsqlTable]	|Stream/Table の明示指定（未指定時は自動判定）
 [Table("name")]	|EF Coreとの互換性維持用（任意）
-[WindowHeartbeat("heartbeat-topic")]	|RocksDB側のウィンドウ更新確認用ハートビート設定
+
 
 🧩 プロパティレベル属性一覧
 |属性名	|説明|
@@ -161,7 +161,9 @@ configuration.Configure<Order>()
 
 ### 3.1 トピック (Kafka Topics)
 
+[Topic] 属性でトピックを定義。
 
+パーティション数やレプリケーション係数のFluent APIによる設定予定。
 #### トピック定義
 ```csharp
 // 属性によるマッピング
@@ -192,16 +194,15 @@ modelBuilder.Entity<Order>()
 - 互換性設定: スキーマ互換性ポリシーの指定
 - スキーマ進化: スキーマバージョンの管理とマイグレーション
 
-#### トピック操作
-```csharp
-/ 型定義に基づく登録
-await context.EnsureDeclaredAsync<Order>();
-
-// 型定義に基づく削除
-await context.UndeclareAsync<Order>();
-```
 
 ### 3.2 ストリーム (KSQL Streams)
+.Where(...), .Select(...) によるフィルタ・変換。
+
+.WithManualCommit() による手動コミット指定が可能。
+
+EntityModel に状態を保存、実行時に反映。
+
+実行時切り替えは不可。
 #### ストリーム定義の前提
 
 ストリームは POCO に対して LINQ 式が適用されたときに動的に解釈され、生成される。
@@ -269,16 +270,50 @@ modelBuilder.Entity<Order>()
 
 開発者はコンパクションの有無を意識せず、通常の LINQ クエリ定義だけで正しく永続化特性を持ったトピックを扱えます。
 ```csharp
-var latestOrders = context.Orders
-    .GroupBy(o => o.CustomerId)
-    .Select(g => new {
-        CustomerId = g.Key,
-        LatestAmount = g.LatestByOffset(o => o.Amount)
-    });
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+
+    modelBuilder.Entity<Order>()
+        .HasTopic("orders")
+        .GroupBy(o => o.CustomerId)
+        .Select(g => new
+        {
+            CustomerId = g.Key,
+            LatestAmount = g.LatestByOffset(o => o.Amount)
+        });
+}
 ```
 この例では CustomerId をキーとした最新の注文金額だけを保持するテーブルが作成され、その裏のトピックは compact となります。
 
+GroupBy(...) によりテーブル（KTable）化。
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+    modelBuilder.Entity<Order>()
+        .HasTopic("orders")
+        .GroupBy(o => o.OrderId)
+        .Window(new[] { 1 })
+        .Select(g => new
+        {
+            OrderId = g.Key,
+            LatestPrice = g.Last().Price,
+            WindowStart = g.WindowStart,
+            WindowEnd = g.WindowEnd
+        });
+}
+
+```
+.Window(...) によりウィンドウ集約可能。
+
+複数のウィンドウサイズ（例：1分・5分）に対応。
+
+orders_window_final への書き込みはPOD内タイマーによるWindow確定で自律実行。
+
+最初に到着したレコードを正とする方針を採用。
+
 #### テーブル判定ルールと基本設計
+
 POCO（C#のエンティティ定義）に対する LINQ 式の中で GroupBy, Aggregate, Window などの構文が含まれている場合、そのクエリは CREATE TABLE に相当する KSQL テーブルと解釈されます。これにより、ストリームとテーブルの判定が LINQ 構文の意味に基づいて一貫して行われます。
 
 また、.AsTable() を明示的に呼び出すことで、意図的にテーブルとして扱うことも可能です。
@@ -366,12 +401,6 @@ Chart_15min
 
 Chart_60min
 
-各ウィンドウに対して自動的に WindowHeartbeat 属性が付与され、例えば以下のようなトピックが生成・送信されます：
-
-```csharp
-[WindowHeartbeat("chart_1min_heartbeat")]
-```
-これにより、ksqlDBでのウィンドウ更新を時間経過に関係なく強制トリガーすることが可能です。
 
 💻 LINQからのアクセス方法
 ユーザーコードからは次のようにウィンドウサイズを指定してデータ取得できます：
@@ -393,7 +422,15 @@ var latest = ctx.Charts.Window(5).ToList()
 ```
 
 ### 3.4 クエリと購読
+ForEachAsync() による購読ストリーム取得。
 
+.WithManualCommit() が指定されたストリームは IManualCommitMessage<T> 型を返す。
+
+.Value：メッセージ内容
+
+.CommitAsync()：コミット処理
+
+.NegativeAckAsync()：否定応答
 #### ストリーム定義とコミット方式の指定
 ```csharp
 // modelBuilder による定義（自動コミット：デフォルト）
@@ -445,7 +482,7 @@ public interface IManualCommitMessage<T>
 ### 4.1 基本定義
 - シンプルなC#クラス: 特別な基底クラス不要
 - 標準的なプロパティ: 一般的な.NET型のサポート
-
+- [Topic], [Key], [AvroTimestamp] 属性を提供。
 
 ### 4.2 型のサポート
 
@@ -458,7 +495,8 @@ float, double|浮動小数点数
 decimal|高精度数値。[DecimalPrecision]で精度指定可能
 bool|真偽値
 string|テキスト
-DateTime, DateTimeOffset|日時型。Kafkaへの送信時にUTC変換処理が入る
+DateTime|AvroTimestamp(IsEventTime=true) で処理 Kafkaへの送信時にUTC変換処理が入る。
+DateTimeOffset|日時型。Kafkaへの送信時にUTC変換処理が入る。利用推奨。KSQL互換に注意
 Guid|一意識別子としてサポート
 short|Kafkaでは int として扱われます。使用可能ですが、必要に応じて明示的なスキーマ変換を考慮してください。
 char|Kafkaには直接の対応がなく、事実上非推奨です。1文字は string 型で表現することを推奨します。
@@ -524,7 +562,13 @@ Kafka における「Exactly Once Semantics (EOS)」をサポートする構成�
 
 
 ## 6. エラー処理とデータ品質
+OnError(ErrorAction.Skip), .WithRetry(int), .Map(...) などのDSL提供予定。
 
+yield 型の ForEachAsync にて try-catch 処理をサポート。
+
+Kafka接続・デシリアライズ・業務エラーの分類的対応を検討中。
+
+DLQ構成は ModelBuilder 経由で指定可能予定。
 ### 6.1 エラー処理戦略
 ```csharp
 // エラー処理ポリシーの設定
