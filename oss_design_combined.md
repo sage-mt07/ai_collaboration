@@ -44,6 +44,8 @@ KSQL Entity Frameworkは、C#プログラマがEntityFrameworkライクなAPIを
 3. **使い慣れたAPI**: EntityFrameworkに類似したAPIデザイン
 4. **LINQサポート**: ストリーム処理をLINQクエリとして表現
 5. **段階的デプロイ**: 基本機能から高度な機能へと段階的に実装
+6. **購読モードの固定化**: ストリーム定義時に自動コミット／手動コミットの方式を明示し、実行時に切り替え不可とする
+
 
 ## 3. POCO属性ベースDSL設計ルール（Fluent APIの排除方針）
 
@@ -245,7 +247,8 @@ modelBuilder.Entity<Order>()
 
 #### コミット方式の指定
 
-購読処理（ForEachAsync）時の commit モードは、LINQ 定義末尾で明示的に設定します。
+この `WithManualCommit()` 指定は `EntityModel` に保存され、実行時の `ForEachAsync()` での処理方式（自動／手動）を決定する際に参照されます。実行時にこの設定を変更することはできません。
+
 ```csharp
 // 自動コミット（デフォルト）
 modelBuilder.Entity<Order>()
@@ -346,6 +349,49 @@ var query3 = from o in context.Orders
 
 ```
 
+⏱️ ウィンドウDSLの拡張：複数Window定義とアクセス
+本フレームワークは、同一エンティティに対して複数の異なるウィンドウ幅（例：1分、5分、15分、60分）を定義し、個別にアクセス・購読可能とする拡張DSLをサポートします。
+
+```csharp
+modelBuilder.Entity<Chart>()
+    .Window(new int[]{1,5,15,60});
+```
+この記述により以下の4テーブルが自動生成されます：
+
+Chart_1min
+
+Chart_5min
+
+Chart_15min
+
+Chart_60min
+
+各ウィンドウに対して自動的に WindowHeartbeat 属性が付与され、例えば以下のようなトピックが生成・送信されます：
+
+```csharp
+[WindowHeartbeat("chart_1min_heartbeat")]
+```
+これにより、ksqlDBでのウィンドウ更新を時間経過に関係なく強制トリガーすることが可能です。
+
+💻 LINQからのアクセス方法
+ユーザーコードからは次のようにウィンドウサイズを指定してデータ取得できます：
+
+```csharp
+var candles1m = ctx.Charts.Window(1).ToList();
+var candles5m = ctx.Charts.Window(5).ToList();
+```
+戻り値は IQueryable<Chart> として取得され、通常のLINQ式が適用可能です。
+
+🔁 最新データ取得の例
+ToLatest() は専用メソッドではなく、LINQで以下のように記述することを推奨します：
+
+```csharp
+var latest = ctx.Charts.Window(5).ToList()
+    .OrderByDescending(c => c.Timestamp)
+    .GroupBy(c => c.Symbol)
+    .Select(g => g.First());
+```
+
 ### 3.4 クエリと購読
 
 #### ストリーム定義とコミット方式の指定
@@ -380,7 +426,19 @@ await foreach (var order in context.HighValueOrders.ForEachAsync())
         await order.NegativeAckAsync();
     }
 }
+
 ```
+手動コミットを使用する場合、`ForEachAsync()` は `IManualCommitMessage<T>` 型のオブジェクトを返します。
+このオブジェクトは `.Value` プロパティで元のメッセージにアクセスでき、`.CommitAsync()` / `.NegativeAckAsync()` によって処理完了／失敗通知を制御します。
+```csharp
+public interface IManualCommitMessage<T>
+{
+    T Value { get; }
+    Task CommitAsync();
+    Task NegativeAckAsync();
+}
+```
+この型は手動コミット指定時のみ返され、自動コミット時は T のままになります（ForEachAsync() の中で分岐）
 
 ## 4. POCO (Plain Old CLR Objects) の設計
 
