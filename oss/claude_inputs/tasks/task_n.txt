@@ -1,0 +1,113 @@
+1. ✅ Window Finalization層の位置づけ
+現状：
+kafka_ksql_linq_dev_guide.md では StateStore 層に "Window処理 (WindowedEntitySet)" の項目があるものの、Window Finalization という処理単位は明示されていません。
+
+判断：
+
+🟡 独立扱いせず、StateStore 層の内部機能として記述強化すべきです。
+
+理由：
+
+StateStoreによる遅延処理と整合性処理（Finalization）は密結合している。
+
+RocksDBなどとの接続やウィンドウ単位のflush処理と一体で理解されるべき。
+
+鳴瀬の判断単位としては「StateStoreの内部フェーズ」として記述が最も自然。
+
+修正案：
+「Window処理」に以下を追記：
+
+markdown
+コピーする
+編集する
+✅ Finalization機能（Windowバッファの終了確定）
+✅ Window粒度での一貫性維持（Flush/Commit処理）
+2. ✅ Query層の Builders 説明強化
+現状：
+DDLQueryGenerator や JoinBuilder, GroupByBuilder などが簡潔に列挙されています。
+
+判断：
+
+🔴 説明不足。中心的役割のため、「KSQL生成パイプラインの要」として構造化説明が必要です。
+
+理由：
+
+DSLとしての価値の中核がこのBuilder群である。
+
+鳴瀬・鏡花がこの層のレビューや生成確認を頻繁に行うため、内部構造・責務整理が必要。
+
+OSSユーザーにも直感的に伝えたい部分。
+
+修正案：
+
+「Query層」に以下のような詳細ブロックを追加：
+
+markdown
+コピーする
+編集する
+### Builder群の構造と責務
+
+- SelectBuilder：SELECT句の構成、匿名型や式展開の対応
+- GroupByBuilder：GROUP BY句の解析と構文生成
+- JoinBuilder：JOIN句の構文木解析と対応KSQL生成
+- WindowBuilder：Window関数（TUMBLING, HOPPING）の組み立て
+- Projector：最終的なSELECT句のレンダリング責任
+
+🔗 これらはすべて `IQueryBuilder` を通じて統合的に扱われ、`QueryPipeline` が最終KSQLを生成
+3. ✅ 設計原則の優先順位：
+Fail-Fast / 型安全性 / 自動化
+
+現状：
+いずれも記載あり。しかし「優先順位」が示されておらず、判断基準として曖昧。
+
+判断：
+
+🟢 優先順位の明示は今後の判断基準として重要。加筆を推奨します。
+
+提案順位（仮案）：
+
+型安全性：Entity定義・DSL解析・エラー検知に直結（OSS理念）
+
+Fail-Fast：Kafka接続失敗・Schema未定義などで早期終了（安定運用）
+
+自動化：POCOからスキーマ・DSL生成など（UXとDevEx向上）
+
+修正案：
+
+markdown
+コピーする
+編集する
+## 設計原則の優先順位
+
+1. **型安全性**：設計ミスの防止と補完支援
+2. **Fail-Fast**：接続・構成ミスを早期検出して開発者に明示
+3. **自動化指向**：Entity定義からスキーマ生成／KSQL DSL変換の省力化
+
+すべての原則は互いに補完し合うが、型安全性を最優先とすることで全体の一貫性が維持される。
+4. ✅ StateStore Ready監視の強調
+現状：
+ReadyStateMonitor が StateStore 層の一機能として1行に収まっている。
+
+判断：
+
+🟠 重要度に比して記述が弱いため、補足説明の追加を推奨します。
+
+理由：
+
+複数PODで同一StateStoreを扱う前提では、Ready判定は初期化成功の指標。
+
+本番想定で「状態未確定のまま処理を始める」バグを防ぐ意味で非常に重要。
+
+修正案：
+
+markdown
+コピーする
+編集する
+✅ Ready状態監視（StateStore初期化完了確認。全PODにおいて重要）
+→ `ReadyStateMonitor`によりStateStoreが利用可能になるまでの状態遷移を追跡
+✅ 全体まとめ
+項目	対応要否	対応方針
+Window Finalizationの位置づけ	✅ 統合扱いで記述補強	StateStore内部機能として強調
+Query Buildersの説明	✅ 必須	構造＋責務記述を追加
+設計原則の優先順位	✅ 優先度記載を推奨	型安全性 ＞ Fail-Fast ＞ 自動化
+StateStore Ready監視の強調	✅ 補強推奨	初期化成功の必須条件として記述強化

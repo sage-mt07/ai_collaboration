@@ -1,0 +1,51 @@
+✅ 1. DSLチェーン：KsqlDsl.EventSet<T> に配置
+実装対象：OnError(ErrorAction.DLQ)、WithRetry(...) など
+
+責務：LINQのような宣言的定義を担い、DLQの有効化もここで管理
+
+保存先の状態：EntityModel.ErrorHandlingPolicy 等に集約
+
+✅ 2. DLQ処理：Messaging層 に実装
+コンポーネント	namespace	備考
+DlqEnvelope	KsqlDsl.Messaging.Models	Kafka DLQに送るメッセージ内容
+DlqProducer	KsqlDsl.Messaging.Producers	共通DLQ出力用のKafkaProducer実装
+IErrorSink	KsqlDsl.Messaging.Contracts	将来の差し替えやMock対応に備えたIF
+ErrorHandlingContext（補助）	KsqlDsl.Messaging.Internal	実行時にエラー処理方針を束ねる場合に使用
+
+✅ 3. namespace構造の指針
+DLQはあくまで「Kafkaへの出力処理の1つ」であり、
+DSL構文レイヤーに依存しない Messaging の責務として切り出します。
+
+swift
+コピーする
+編集する
+KsqlDsl
+├── EventSet<T>                      // DSL（OnError, Map, WithRetry）
+│
+├── Messaging
+│   ├── Contracts
+│   │   └── IErrorSink               // 抽象化
+│   ├── Models
+│   │   └── DlqEnvelope              // バイナリ＋例外情報
+│   ├── Producers
+│   │   └── DlqProducer              // KafkaProducerラッパー
+│   └── Internal
+│       └── ErrorHandlingContext     // 実行中のエラー状態を記録（必要なら）
+DlqEnvelope の注意点
+バイナリ保存のため byte[] AvroPayload を含む
+
+KSQL互換を意識するなら Avroスキーマ登録も別途管理可能（後方対応でよい）
+
+JSONログ化はOSSでは対応せず、拡張利用者が自前で行う前提
+
+
+
+🔁 他に影響を与える設計要素
+項目	修正内容
+ErrorAction	DeadLetter → DLQ に正式改名
+EntityModel	.ErrorHandlingPolicy を追加（ErrorAction記録用）
+ForEachAsync処理系	ErrorHandlingContext を参照して DlqProducer 起動
+
+この構造なら、DSLの宣言は EventSet<T>、
+実行時の責務は Messaging に委任という分離が保て、
+鳴瀬の設計原則にもフィットすると考えます。

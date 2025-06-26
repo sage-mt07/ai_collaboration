@@ -582,16 +582,29 @@ var processedOrders = context.Orders
 ```
 
 ### 6.2 デッドレターキュー
-DLQ の設定は、エンティティ定義時に行います。以下のように modelBuilder.Entity<T>() の中で指定することで、対象のストリーム／テーブルごとに個別の DLQ を定義できます。
-DLQ トピック名は省略可能で、省略された場合は "{EntityName}-dlq" の形式で自動生成されます。
-```csharp
-modelBuilder.Entity<Order>()
-    .WithDeadLetterQueue(); 
-    // トピック名は "orders-dlq" のように自動生成されます
-```
-DLQ を設定することで、変換や送信に失敗したデータを指定トピックへ退避可能です。
+DLQはフレームワークレベルで一元的に構成されており、個々のエンティティやmodelBuilder設定で明示的に指定する必要はありません。
 
-DLQ に送られたメッセージは後続で再処理やモニタリングの対象となります。
+エラー発生時には、内部の `DlqProducer` により、共通のDLQトピック（デフォルトは `"dead.letter.queue"`）へ自動的に送信されます。
+
+Kafkaトピック名の変更が必要な場合は、`KsqlDslOptions.DlqTopicName` により一括設定可能です。
+
+
+DLQは明示的な設定を必要とせず、エラー発生時に内部的に `DlqProducer` が自動的に送信処理を行います。  
+これにより、利用者は特別な設定なしでエラールーティングの恩恵を受けることができます。
+
+
+```csharp
+var result = context.Orders
+    .OnError(ErrorAction.DLQ)
+    .Map(order => Process(order));
+    // 共通のDLQトピックに送信されます
+```
+DLQ（Dead Letter Queue）への送信は、LINQクエリチェーンの中で `OnError(ErrorAction.DLQ)` を指定することで実現されます。
+
+この指定がある場合、エラーが発生したレコードは内部の `DlqProducer` により共通DLQトピック（既定は `"dead.letter.queue"`）に送信されます。
+
+この方式により、開発者は個別のDLQ設定やトピック定義を意識せずに、エラー発生時の処理方針をDSLで明確に記述できます。
+
 
 ### 6.3 スキーマフォーマットについて
 

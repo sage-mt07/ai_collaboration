@@ -1,0 +1,70 @@
+Kafkaメッセージ処理中の例外時、復旧・再処理可能な形式での退避を実現するため、
+全メッセージ型共通のDLQトピックを用いた設計とする。
+
+1. 🧱 基本方針
+DLQトピックはシステム全体で1つ
+
+名前：dead.letter.queue（変更可能）
+
+WithDeadLetterQueue() は個別に使わず、全体設定として1か所で指定
+
+保存形式は Avro または byte[]（バイナリ形式）
+
+処理対象の シリアライズ済みKafkaメッセージをそのまま保存
+
+JSON化は一切行わない
+
+可視化ではなく再処理を主眼に置いた構造
+
+2. 💾 保存内容（Avroまたはバイト列）
+csharp
+コピーする
+編集する
+public class DlqEnvelope
+{
+    public string Topic { get; set; }
+    public int Partition { get; set; }
+    public long Offset { get; set; }
+    public byte[] AvroPayload { get; set; }           // 元のメッセージ本体（バイナリ）
+    public string ExceptionType { get; set; }
+    public string ExceptionMessage { get; set; }
+    public string? StackTrace { get; set; }
+    public DateTime Timestamp { get; set; }
+}
+3. 🧩 DSL設計（アプリ側の記述例）
+csharp
+コピーする
+編集する
+await foreach (var message in context.Orders
+    .OnError(ErrorAction.DLQ)   // 自動的に DLQ へ送る
+    .Map(order => ProcessOrder(order))
+    .WithRetry(3)
+    .ForEachAsync())
+{
+    await message.CommitAsync();
+}
+4. 🏗️ 実装概要
+ErrorAction.DLQ を指定すると、DlqProducer が内部的に起動
+
+IManualCommitMessage<T> の内部で AvroSerializer<T> により再シリアライズ
+
+DlqEnvelope に包んだうえで 共通のDLQトピックに非同期送信
+
+トピック設定：retention.ms = 5000（デフォルト）
+
+5. 🎛️ カスタマイズ可能箇所（将来拡張）
+DLQのトピック名（構成ファイルで設定）
+
+Avroスキーマの自動付与／Schema Registry登録
+
+DlqEnvelope 拡張（たとえば correlationId など）
+
+✅ 鳴瀬への注意点
+「バイナリで保存するのは、再処理が可能な唯一の構造だから」
+
+「DLQは可視化のためではなく、安全に失敗データを退避する装置として設計する」
+
+「分析は別の手段、DLQにロジックを持たせない」
+
+この設計は、責任の最小化と復旧性の最大化を目的にしています。
+鳴瀬の好む「構造による制御」とも矛盾しないはずです。

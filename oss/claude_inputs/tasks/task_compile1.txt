@@ -1,0 +1,75 @@
+重大度レベル	コード	説明	プロジェクト	ファイル	行	抑制状態	詳細
+エラー (アクティブ)	CS0535	'DlqProducer' はインターフェイス メンバー 'IErrorSink.HandleErrorAsync<T>(T, Exception, KafkaMessageContext?, CancellationToken)' を実装しません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Messaging\Producers\DlqProducer.cs	15		
+エラー (アクティブ)	CS1061	'KsqlDslOptions' に 'DlqTopicName' の定義が含まれておらず、型 'KsqlDslOptions' の最初の引数を受け付けるアクセス可能な拡張メソッド 'DlqTopicName' が見つかりませんでした。using ディレクティブまたはアセンブリ参照が不足していないことを確認してください	Kafka.Ksql.Linq	C:\jinto\jinto\src\Messaging\Producers\DlqProducer.cs	29		
+エラー (アクティブ)	CS0118	'Exception' は 名前空間 ですが、種類 のように使用されています	Kafka.Ksql.Linq	C:\jinto\jinto\src\Messaging\Producers\DlqProducer.cs	35		
+エラー (アクティブ)	CS0118	'Exception' は 名前空間 ですが、種類 のように使用されています	Kafka.Ksql.Linq	C:\jinto\jinto\src\Messaging\Producers\DlqProducer.cs	80		
+エラー (アクティブ)	CS1998	この非同期メソッドには 'await' 演算子がないため、同期的に実行されます。'await' 演算子を使用して非ブロッキング API 呼び出しを待機するか、'await Task.Run(...)' を使用してバックグラウンドのスレッドに対して CPU 主体の処理を実行することを検討してください。	Kafka.Ksql.Linq	C:\jinto\jinto\src\Messaging\Producers\DlqProducer.cs	91		
+エラー (アクティブ)	CS0118	'Exception' は 名前空間 ですが、種類 のように使用されています	Kafka.Ksql.Linq	C:\jinto\jinto\src\Messaging\Producers\DlqProducer.cs	100		
+エラー (アクティブ)	CS0156	引数なしの throw ステートメントは catch 句以外では使えません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Messaging\Internal\ErrorHandlingContext.cs	62		
+エラー (アクティブ)	CS0156	引数なしの throw ステートメントは catch 句以外では使えません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Messaging\Internal\ErrorHandlingContext.cs	82		
+エラー (アクティブ)	CS0117	'ErrorHandlingPolicy' に 'Action' の定義がありません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingExtensions.cs	22		
+エラー (アクティブ)	CS0229	'ErrorHandlingPolicy.CustomHandler' と 'ErrorHandlingPolicy.CustomHandler' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingExtensions.cs	23		
+エラー (アクティブ)	CS1061	'EventSet<T>' に 'WithErrorPolicy' の定義が含まれておらず、型 'EventSet<T>' の最初の引数を受け付けるアクセス可能な拡張メソッド 'WithErrorPolicy' が見つかりませんでした。using ディレクティブまたはアセンブリ参照が不足していないことを確認してください	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingExtensions.cs	26		
+エラー (アクティブ)	CS0117	'ErrorHandlingPolicy' に 'Action' の定義がありません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingExtensions.cs	42		
+エラー (アクティブ)	CS0117	'ErrorHandlingPolicy' に 'RetryCount' の定義がありません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingExtensions.cs	43		
+エラー (アクティブ)	CS0117	'ErrorHandlingPolicy' に 'RetryInterval' の定義がありません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingExtensions.cs	44		
+エラー (アクティブ)	CS0229	'ErrorHandlingPolicy.RetryCondition' と 'ErrorHandlingPolicy.RetryCondition' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingExtensions.cs	45		
+エラー (アクティブ)	CS1061	'EventSet<T>' に 'WithErrorPolicy' の定義が含まれておらず、型 'EventSet<T>' の最初の引数を受け付けるアクセス可能な拡張メソッド 'WithErrorPolicy' が見つかりませんでした。using ディレクティブまたはアセンブリ参照が不足していないことを確認してください	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingExtensions.cs	48		
+エラー (アクティブ)	CS0117	'ErrorHandlingPolicy' に 'Action' の定義がありません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingExtensions.cs	60		
+エラー (アクティブ)	CS0229	'ErrorHandlingPolicy.MetricsCallback' と 'ErrorHandlingPolicy.MetricsCallback' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingExtensions.cs	61		
+エラー (アクティブ)	CS1061	'EventSet<T>' に 'WithErrorPolicy' の定義が含まれておらず、型 'EventSet<T>' の最初の引数を受け付けるアクセス可能な拡張メソッド 'WithErrorPolicy' が見つかりませんでした。using ディレクティブまたはアセンブリ参照が不足していないことを確認してください	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingExtensions.cs	64		
+エラー (アクティブ)	CS0102	型 'ErrorHandlingPolicy' は既に 'CustomHandler' の定義を含んでいます	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicy.cs	14		
+エラー (アクティブ)	CS0102	型 'ErrorHandlingPolicy' は既に 'RetryCondition' の定義を含んでいます	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicy.cs	19		
+エラー (アクティブ)	CS0102	型 'ErrorHandlingPolicy' は既に 'MetricsCallback' の定義を含んでいます	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicy.cs	24		
+エラー (アクティブ)	CS0102	型 'ErrorHandlingPolicy' は既に 'AdditionalLogInfo' の定義を含んでいます	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicy.cs	29		
+エラー (アクティブ)	CS0102	型 'ErrorHandlingPolicy' は既に 'DynamicRetryInterval' の定義を含んでいます	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicy.cs	34		
+エラー (アクティブ)	CS0111	型 'ErrorHandlingPolicy' は、'ExponentialBackoff' と呼ばれるメンバーを同じパラメーターの型で既に定義しています	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicy.cs	39		
+エラー (アクティブ)	CS0117	'ErrorHandlingPolicy' に 'Action' の定義がありません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicy.cs	45		
+エラー (アクティブ)	CS0117	'ErrorHandlingPolicy' に 'RetryCount' の定義がありません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicy.cs	46		
+エラー (アクティブ)	CS0229	'ErrorHandlingPolicy.DynamicRetryInterval' と 'ErrorHandlingPolicy.DynamicRetryInterval' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicy.cs	47		
+エラー (アクティブ)	CS0111	型 'ErrorHandlingPolicy' は、'CircuitBreaker' と呼ばれるメンバーを同じパラメーターの型で既に定義しています	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicy.cs	55		
+エラー (アクティブ)	CS0117	'ErrorHandlingPolicy' に 'Action' の定義がありません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicy.cs	61		
+エラー (アクティブ)	CS0229	'ErrorHandlingPolicy.CustomHandler' と 'ErrorHandlingPolicy.CustomHandler' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicy.cs	62		
+エラー (アクティブ)	CS0121	次のメソッドまたはプロパティ間で呼び出しが不適切です: 'CircuitBreakerHandler.CircuitBreakerHandler(int, TimeSpan)' と 'CircuitBreakerHandler.CircuitBreakerHandler(int, TimeSpan)'	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicy.cs	62		
+エラー (アクティブ)	CS0117	'ErrorHandlingPolicy' に 'Action' の定義がありません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	41		
+エラー (アクティブ)	CS0117	'ErrorHandlingPolicy' に 'RetryCount' の定義がありません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	42		
+エラー (アクティブ)	CS0229	'ErrorHandlingPolicy.DynamicRetryInterval' と 'ErrorHandlingPolicy.DynamicRetryInterval' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	43		
+エラー (アクティブ)	CS0117	'ErrorHandlingPolicy' に 'Action' の定義がありません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	57		
+エラー (アクティブ)	CS0229	'ErrorHandlingPolicy.CustomHandler' と 'ErrorHandlingPolicy.CustomHandler' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	58		
+エラー (アクティブ)	CS0121	次のメソッドまたはプロパティ間で呼び出しが不適切です: 'CircuitBreakerHandler.CircuitBreakerHandler(int, TimeSpan)' と 'CircuitBreakerHandler.CircuitBreakerHandler(int, TimeSpan)'	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	58		
+エラー (アクティブ)	CS0229	'CircuitBreakerHandler._failureThreshold' と 'CircuitBreakerHandler._failureThreshold' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	76		
+エラー (アクティブ)	CS0229	'CircuitBreakerHandler._recoveryInterval' と 'CircuitBreakerHandler._recoveryInterval' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	77		
+エラー (アクティブ)	CS0229	'CircuitBreakerHandler._isOpen' と 'CircuitBreakerHandler._isOpen' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	85		
+エラー (アクティブ)	CS0229	'CircuitBreakerHandler._lastFailureTime' と 'CircuitBreakerHandler._lastFailureTime' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	85		
+エラー (アクティブ)	CS0229	'CircuitBreakerHandler._recoveryInterval' と 'CircuitBreakerHandler._recoveryInterval' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	85		
+エラー (アクティブ)	CS0229	'CircuitBreakerHandler._isOpen' と 'CircuitBreakerHandler._isOpen' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	87		
+エラー (アクティブ)	CS0229	'CircuitBreakerHandler._failureCount' と 'CircuitBreakerHandler._failureCount' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	88		
+エラー (アクティブ)	CS0229	'CircuitBreakerHandler._isOpen' と 'CircuitBreakerHandler._isOpen' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	92		
+エラー (アクティブ)	CS0229	'CircuitBreakerHandler._failureCount' と 'CircuitBreakerHandler._failureCount' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	98		
+エラー (アクティブ)	CS0229	'CircuitBreakerHandler._lastFailureTime' と 'CircuitBreakerHandler._lastFailureTime' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	99		
+エラー (アクティブ)	CS0229	'CircuitBreakerHandler._failureCount' と 'CircuitBreakerHandler._failureCount' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	102		
+エラー (アクティブ)	CS0229	'CircuitBreakerHandler._failureThreshold' と 'CircuitBreakerHandler._failureThreshold' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	102		
+エラー (アクティブ)	CS0229	'CircuitBreakerHandler._isOpen' と 'CircuitBreakerHandler._isOpen' 間があいまいです	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Abstractions\ErrorHandlingPolicyExtended.cs	104		
+エラー (アクティブ)	CS0452	型 'T' は、ジェネリック型のパラメーター 'T'、またはメソッド 'ErrorHandlingContext.HandleErrorAsync<T>(T, Exception, KafkaMessageContext?)' として使用するために、参照型でなければなりません	Kafka.Ksql.Linq	C:\jinto\jinto\src\EventSet.cs	172		
+エラー (アクティブ)	CS0452	型 'T' は、ジェネリック型のパラメーター 'T'、またはメソッド 'ErrorHandlingContext.HandleErrorAsync<T>(T, Exception, KafkaMessageContext?)' として使用するために、参照型でなければなりません	Kafka.Ksql.Linq	C:\jinto\jinto\src\EventSet.cs	216		
+エラー (アクティブ)	CS0452	型 'T' は、ジェネリック型のパラメーター 'T'、またはメソッド 'ErrorHandlingContext.HandleErrorAsync<T>(T, Exception, KafkaMessageContext?)' として使用するために、参照型でなければなりません	Kafka.Ksql.Linq	C:\jinto\jinto\src\EventSet.cs	272		
+エラー (アクティブ)	CS0115	'EventSetWithStateStore<T>.SendEntityAsync(T, CancellationToken)': オーバーライドする適切なメソッドが見つかりませんでした	Kafka.Ksql.Linq	C:\jinto\jinto\src\StateStore\EventSetWithStateStore.cs	19		
+エラー (アクティブ)	CS0535	'JoinableEntitySet<T>' はインターフェイス メンバー 'IEntitySet<T>.AddAsync(T, CancellationToken)' を実装しません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Query\Linq\JoinableEntitySet.cs	8		
+エラー (アクティブ)	CS0535	'JoinableEntitySet<T>' はインターフェイス メンバー 'IEntitySet<T>.ToListAsync(CancellationToken)' を実装しません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Query\Linq\JoinableEntitySet.cs	8		
+エラー (アクティブ)	CS0535	'JoinableEntitySet<T>' はインターフェイス メンバー 'IEntitySet<T>.ForEachAsync(Func<T, Task>, TimeSpan, CancellationToken)' を実装しません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Query\Linq\JoinableEntitySet.cs	8		
+エラー (アクティブ)	CS0535	'JoinableEntitySet<T>' はインターフェイス メンバー 'IEntitySet<T>.GetTopicName()' を実装しません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Query\Linq\JoinableEntitySet.cs	8		
+エラー (アクティブ)	CS0535	'JoinableEntitySet<T>' はインターフェイス メンバー 'IEntitySet<T>.GetEntityModel()' を実装しません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Query\Linq\JoinableEntitySet.cs	8		
+エラー (アクティブ)	CS0535	'JoinableEntitySet<T>' はインターフェイス メンバー 'IEntitySet<T>.GetContext()' を実装しません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Query\Linq\JoinableEntitySet.cs	8		
+エラー (アクティブ)	CS0535	'JoinableEntitySet<T>' はインターフェイス メンバー 'IAsyncEnumerable<T>.GetAsyncEnumerator(CancellationToken)' を実装しません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Query\Linq\JoinableEntitySet.cs	8		
+エラー (アクティブ)	CS0115	'JoinResultEntitySet<T>.ExecuteQueryAsync(CancellationToken)': オーバーライドする適切なメソッドが見つかりませんでした	Kafka.Ksql.Linq	C:\jinto\jinto\src\Query\Linq\JoinResultEntitySet.cs	26		
+エラー (アクティブ)	CS0115	'EventSetWithServices<T>.SendEntityAsync(T, CancellationToken)': オーバーライドする適切なメソッドが見つかりませんでした	Kafka.Ksql.Linq	C:\jinto\jinto\src\KafkaContext.cs	266		
+エラー (アクティブ)	CS0115	'EventSetWithSimplifiedServices<T>.SendEntityAsync(T, CancellationToken)': オーバーライドする適切なメソッドが見つかりませんでした	Kafka.Ksql.Linq	C:\jinto\jinto\src\Application\KsqlContext.cs	137		
+エラー (アクティブ)	CS0115	'WindowAggregatedEntitySet<TSource, TKey, TResult>.ExecuteQueryAsync(CancellationToken)': オーバーライドする適切なメソッドが見つかりませんでした	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Window\WindowAggregatedEntitySet.cs	60		
+エラー (アクティブ)	CS0535	'WindowedEntitySet<T>' はインターフェイス メンバー 'IEntitySet<T>.AddAsync(T, CancellationToken)' を実装しません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Window\WindowedEntitySet.cs	14		
+エラー (アクティブ)	CS0535	'WindowedEntitySet<T>' はインターフェイス メンバー 'IEntitySet<T>.ToListAsync(CancellationToken)' を実装しません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Window\WindowedEntitySet.cs	14		
+エラー (アクティブ)	CS0535	'WindowedEntitySet<T>' はインターフェイス メンバー 'IEntitySet<T>.ForEachAsync(Func<T, Task>, TimeSpan, CancellationToken)' を実装しません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Window\WindowedEntitySet.cs	14		
+エラー (アクティブ)	CS0535	'WindowedEntitySet<T>' はインターフェイス メンバー 'IEntitySet<T>.GetTopicName()' を実装しません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Window\WindowedEntitySet.cs	14		
+エラー (アクティブ)	CS0535	'WindowedEntitySet<T>' はインターフェイス メンバー 'IEntitySet<T>.GetEntityModel()' を実装しません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Window\WindowedEntitySet.cs	14		
+エラー (アクティブ)	CS0535	'WindowedEntitySet<T>' はインターフェイス メンバー 'IEntitySet<T>.GetContext()' を実装しません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Window\WindowedEntitySet.cs	14		
+エラー (アクティブ)	CS0535	'WindowedEntitySet<T>' はインターフェイス メンバー 'IAsyncEnumerable<T>.GetAsyncEnumerator(CancellationToken)' を実装しません	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Window\WindowedEntitySet.cs	14		
+エラー (アクティブ)	CS0115	'WindowedEntitySet<T>.ExecuteQueryAsync(CancellationToken)': オーバーライドする適切なメソッドが見つかりませんでした	Kafka.Ksql.Linq	C:\jinto\jinto\src\Core\Window\WindowedEntitySet.cs	105		
